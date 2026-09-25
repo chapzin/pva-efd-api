@@ -31,6 +31,12 @@ import java.nio.file.Path;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
+import java.time.LocalDate;
+import java.net.URLDecoder;
 import java.util.TreeSet;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -48,7 +54,7 @@ public class PvaServer {
   static IInteracaoImportacaoEscrituracao ui;
   static IMostrarProgresso progresso;
   static String versao = "";
-  static final Path DIR_TABELAS = Path.of("recursos/TabelasExternas");
+  static final Path DIR_TABELAS = Catalogo.DIR_TABELAS;
   static volatile String ultimaAtualizacao = "";
 
   // Responde aos diálogos do PVA como o operador responderia na validação:
@@ -100,113 +106,133 @@ public class PvaServer {
   }
 
   static String js(Object o) {
-    if (o == null) return "null";
-    StringBuilder b = new StringBuilder("\"");
-    for (char ch : o.toString().toCharArray()) {
-      switch (ch) {
-        case '"' -> b.append("\\\"");
-        case '\\' -> b.append("\\\\");
-        case '\n', '\r', '\t' -> b.append(' ');
-        default -> {
-          if (ch < 0x20) b.append(' ');
-          else b.append(ch);
-        }
-      }
-    }
-    return b.append('"').toString();
+    return o == null ? "null" : Json.of(o.toString());
   }
 
-  static String inconsistencias(EscrituracaoFiscal esc) throws Exception {
-    IPersistencia per = PersistenciaFiscalPVA.getSingleton().abrirPersistencia(esc);
-    StringBuilder b = new StringBuilder("[");
-    try {
-      String tabela = null;
-      try (ResultSet t = per.executarComandoSql("SHOW TABLES")) {
-        while (t.next()) {
-          String n = t.getString(1);
-          if (n.toLowerCase().contains("inconsist")) tabela = n;
-        }
+  interface Etapa {
+    void executar(IPersistencia per, Map<String, Object> out) throws Exception;
+  }
+
+  static Map<String, Object> erro(String tipo, String codigo, String registro, String campo, long linha, String valor,
+      String esperado, String conteudo) {
+    return Json.obj("tipo", tipo, "codigo", codigo, "descricao", Catalogo.mensagem(codigo), "registro", registro, "campo", campo,
+        "linha", linha, "valor", valor, "esperado", esperado, "conteudo", conteudo);
+  }
+
+  static List<Map<String, Object>> inconsistencias(IPersistencia per) throws Exception {
+    List<Map<String, Object>> out = new ArrayList<>();
+    String tabela = null;
+    try (ResultSet t = per.executarComandoSql("SHOW TABLES")) {
+      while (t.next()) {
+        String n = t.getString(1);
+        if (n.toLowerCase().contains("inconsist")) tabela = n;
       }
-      if (tabela == null) return "[]";
-      try (ResultSet r = per.executarComandoSql("SELECT TIPO, ID_MENSAGEM, NOME_REGISTRO, ID_CAMPO, NUMERO_LINHA,"
-          + " VALOR_CAMPO, VALOR_ESPERADO_CAMPO, CONTEUDO_LINHA FROM " + tabela + " ORDER BY NUMERO_LINHA LIMIT 500")) {
-        int n = 0;
-        while (r.next()) {
-          if (n++ > 0) b.append(',');
-          b.append("{\"tipo\":").append(js(r.getString(1)))
-              .append(",\"codigo\":").append(js(r.getString(2)))
-              .append(",\"registro\":").append(js(r.getString(3)))
-              .append(",\"campo\":").append(js(r.getString(4)))
-              .append(",\"linha\":").append(r.getLong(5))
-              .append(",\"valor\":").append(js(r.getString(6)))
-              .append(",\"esperado\":").append(js(r.getString(7)))
-              .append(",\"conteudo\":").append(js(r.getString(8)))
-              .append('}');
-        }
-      }
-    } finally {
-      per.fecharPersistencia();
     }
-    return b.append(']').toString();
+    if (tabela == null) return out;
+    try (ResultSet r = per.executarComandoSql("SELECT TIPO, ID_MENSAGEM, NOME_REGISTRO, ID_CAMPO, NUMERO_LINHA,"
+        + " VALOR_CAMPO, VALOR_ESPERADO_CAMPO, CONTEUDO_LINHA FROM " + tabela + " ORDER BY NUMERO_LINHA LIMIT 500")) {
+      while (r.next()) {
+        out.add(erro(r.getString(1), r.getString(2), r.getString(3), r.getString(4), r.getLong(5), r.getString(6), r.getString(7),
+            r.getString(8)));
+      }
+    }
+    return out;
   }
 
   // Arquivo não integrado: o PVA descarta o mapa de erros da importação e só
   // abre um relatório de tela. Reimporta pela fachada para devolver esses erros.
-  static String errosDeImportacao(Path arq, EscrituracaoFiscal esc) throws Exception {
+  static List<Map<String, Object>> errosDeImportacao(Path arq, EscrituracaoFiscal esc) throws Exception {
     ResultadoValidacao r;
     try (InputStream in = Files.newInputStream(arq)) {
       ILeitorEscrituracao l = new LeitorArquivoHierarquicoInputStreamFiscal(in, esc.getDescritor());
       r = FachadaValidadorSPEDFiscal.importarEscrituracao(l, esc, progresso, 1000, 1000, new SessaoVep());
     }
-    StringBuilder b = new StringBuilder("[");
-    int n = 0;
+    List<Map<String, Object>> out = new ArrayList<>();
     if (r.getMapErros() != null) {
       for (List<Inconsistencia> is : r.getMapErros().values()) {
         for (Inconsistencia i : is) {
-          if (n++ > 0) b.append(',');
-          b.append("{\"tipo\":").append(js(i.getTipo() == null ? null : i.getTipo().name().substring(0, 1)))
-              .append(",\"codigo\":").append(js(i.getIdentificador()))
-              .append(",\"registro\":").append(js(i.getNomeRegistro()))
-              .append(",\"campo\":").append(js(i.getIdentificadorCampo()))
-              .append(",\"linha\":").append(i.getLinhaArquivo() == null ? 0 : i.getLinhaArquivo())
-              .append(",\"valor\":").append(js(i.getValorCampo()))
-              .append(",\"esperado\":").append(js(i.getValorEsperado()))
-              .append(",\"conteudo\":").append(js(i.getValorRegistro()))
-              .append('}');
+          out.add(erro(i.getTipo() == null ? null : i.getTipo().name().substring(0, 1), i.getIdentificador(), i.getNomeRegistro(),
+              i.getIdentificadorCampo(), i.getLinhaArquivo() == null ? 0 : i.getLinhaArquivo(), i.getValorCampo(),
+              i.getValorEsperado(), i.getValorRegistro()));
         }
       }
     }
-    return b.append(']').toString();
+    return out;
   }
 
-  static synchronized String validar(Path arq) {
+  // Conferência antes do PVA: o leiaute errado para o período é o motivo mais comum
+  // de arquivo recusado sem explicação clara.
+  static List<Map<String, Object>> avisos(Path arq) {
+    List<Map<String, Object>> out = new ArrayList<>();
+    try (var r = Files.newBufferedReader(arq, StandardCharsets.ISO_8859_1)) {
+      String l = r.readLine();
+      if (l == null || !l.startsWith("|0000|")) {
+        out.add(Json.obj("codigo", "SEM_REGISTRO_0000", "mensagem", "A primeira linha do arquivo não é o registro 0000."));
+        return out;
+      }
+      String[] c = l.split("\\|", -1);
+      String codVer = c.length > 2 ? c[2] : "";
+      LocalDate ini = Verificacoes.data(c.length > 4 ? c[4] : null);
+      if (ini == null) return out;
+      Map<String, Object> certo = Catalogo.consultarTabela("VERSOES_LEIAUTE", null, null, ini.toString());
+      List<?> linhas = (List<?>) certo.get("linhas");
+      if (linhas.isEmpty()) return out;
+      String esperado = String.valueOf(((Map<?, ?>) linhas.get(0)).get("COD_LEI"));
+      if (!esperado.equals(codVer)) {
+        out.add(Json.obj("codigo", "LEIAUTE_DO_PERIODO", "mensagem", "COD_VER " + codVer + " no 0000, mas o leiaute vigente em " + ini
+            + " é o " + esperado + ". O PVA recusa o arquivo na importação.", "informado", codVer, "esperado", esperado));
+      }
+    } catch (Exception e) {
+      System.err.println("avisos: " + e);
+    }
+    return out;
+  }
+
+  // Importa, roda a etapa extra com o banco da escrituração aberto e apaga tudo.
+  // O PVA é singleton: uma escrituração por vez.
+  static synchronized Map<String, Object> processar(Path arq, Etapa etapa) {
     capturada = null;
     mensagens.clear();
     long t = System.currentTimeMillis();
-    StringBuilder out = new StringBuilder("{\"versaoPva\":").append(js(versao));
+    Map<String, Object> out = Json.obj("versaoPva", versao);
+    out.put("avisos", avisos(arq));
     try {
       controle.importarEscrituracao(arq.toString(), ui, progresso, false, 1000, 1000);
       String estado = capturada == null ? null : String.valueOf(capturada.getEstado());
       boolean ok = "VALIDADA".equals(estado) || "GERADA_PARA_ENTREGA".equals(estado);
-      out.append(",\"estado\":").append(js(estado)).append(",\"valido\":").append(ok);
-      String erros = "[]";
+      out.put("estado", capturada == null || capturada.getEstado() == null ? null : estado);
+      out.put("valido", ok);
+      out.put("erros", List.of());
       if (capturada != null && capturada.getEstado() == null) {
         try {
-          erros = errosDeImportacao(arq, capturada);
+          out.put("erros", errosDeImportacao(arq, capturada));
         } catch (Throwable e) {
-          out.append(",\"falha\":").append(js("erros de importação indisponíveis: " + e));
+          out.put("falha", "erros de importação indisponíveis: " + e);
         }
-      } else if (capturada != null && !ok) {
-        // Arquivo recusado na importação não chega a ter banco para o relatório.
+      } else if (capturada != null) {
+        IPersistencia per = PersistenciaFiscalPVA.getSingleton().abrirPersistencia(capturada);
         try {
-          erros = inconsistencias(capturada);
-        } catch (Throwable e) {
-          out.append(",\"falha\":").append(js("relatório de inconsistências indisponível: " + e));
+          if (!ok) {
+            try {
+              out.put("erros", inconsistencias(per));
+            } catch (Throwable e) {
+              out.put("falha", "relatório de inconsistências indisponível: " + e);
+            }
+          }
+          if (etapa != null) {
+            try {
+              etapa.executar(per, out);
+            } catch (Throwable e) {
+              out.put("falhaEtapa", String.valueOf(e));
+            }
+          }
+        } finally {
+          per.fecharPersistencia();
         }
       }
-      out.append(",\"erros\":").append(erros);
     } catch (Throwable e) {
-      out.append(",\"valido\":false,\"falha\":").append(js(e));
+      out.put("valido", false);
+      out.put("falha", String.valueOf(e));
     } finally {
       if (capturada != null) {
         try {
@@ -216,9 +242,52 @@ public class PvaServer {
         }
       }
     }
-    out.append(",\"mensagens\":[");
-    for (int i = 0; i < mensagens.size(); i++) out.append(i > 0 ? "," : "").append(js(mensagens.get(i)));
-    return out.append("],\"ms\":").append(System.currentTimeMillis() - t).append('}').toString();
+    out.put("mensagens", new ArrayList<>(mensagens));
+    out.put("ms", System.currentTimeMillis() - t);
+    return out;
+  }
+
+  static final Etapa ANALISE = (per, out) -> {
+    Map<String, Object> resumo = Verificacoes.resumo(per);
+    out.put("resumo", resumo);
+    out.put("verificacoes", Verificacoes.executar(per, resumo));
+  };
+
+  static final Pattern SQL_PROIBIDO = Pattern.compile(";|\\b(INTO|OUTFILE|DUMPFILE|LOAD_FILE|SLEEP|BENCHMARK|GET_LOCK)\\b",
+      Pattern.CASE_INSENSITIVE);
+
+  static Etapa consulta(String sql, int limite) {
+    return (per, out) -> {
+      List<Map<String, String>> l = Verificacoes.linhas(per, sql, limite + 1);
+      out.put("truncado", l.size() > limite);
+      out.put("linhas", l.size() > limite ? l.subList(0, limite) : l);
+    };
+  }
+
+  // Um .txt (a EFD) e qualquer quantidade de XML de NF-e/NFC-e/CT-e e eventos.
+  static Path desempacotar(Path zip, Cruzamento.Lote lote) throws Exception {
+    Path txt = null;
+    long total = 0;
+    var p = Cruzamento.parser();
+    try (ZipInputStream z = new ZipInputStream(Files.newInputStream(zip), StandardCharsets.ISO_8859_1)) {
+      for (ZipEntry e; (e = z.getNextEntry()) != null; ) {
+        if (e.isDirectory()) continue;
+        String nome = e.getName().toLowerCase();
+        if (nome.contains("__macosx/")) continue;
+        byte[] b = z.readNBytes((int) Math.min(LIMITE_BYTES, Integer.MAX_VALUE - 8) + 1);
+        total += b.length;
+        if (b.length > LIMITE_BYTES || total > LIMITE_BYTES * 4) throw new IllegalArgumentException("ZIP maior que o limite");
+        if (nome.endsWith(".txt")) {
+          if (txt != null) throw new IllegalArgumentException("o ZIP deve ter um único .txt (a EFD)");
+          txt = Files.createTempFile("efd-", ".txt");
+          Files.write(txt, b);
+        } else if (nome.endsWith(".xml")) {
+          Cruzamento.ler(lote, e.getName(), b, p);
+        }
+      }
+    }
+    if (txt == null) throw new IllegalArgumentException("o ZIP não tem o arquivo .txt da EFD");
+    return txt;
   }
 
   // Arquivos "<pacote>$<tabela>$<versao>$<id>": o nome já carrega a versão.
@@ -304,9 +373,7 @@ public class PvaServer {
   }
 
   static String lista(List<String> l) {
-    StringBuilder b = new StringBuilder("[");
-    for (int i = 0; i < l.size(); i++) b.append(i > 0 ? "," : "").append(js(l.get(i)));
-    return b.append(']').toString();
+    return Json.of(l);
   }
 
   // O Java responde HTTP mesmo com o Xvfb morto, mas toda validação falharia
@@ -355,7 +422,45 @@ public class PvaServer {
     }
   }
 
+  interface Tratador {
+    String tratar(Path arq) throws Exception;
+  }
+
+  static Map<String, String> parametros(HttpExchange ex) {
+    Map<String, String> m = new java.util.HashMap<>();
+    String q = ex.getRequestURI().getRawQuery();
+    if (q == null) return m;
+    for (String par : q.split("&")) {
+      int i = par.indexOf('=');
+      if (i > 0) m.put(URLDecoder.decode(par.substring(0, i), StandardCharsets.UTF_8), URLDecoder.decode(par.substring(i + 1), StandardCharsets.UTF_8));
+    }
+    return m;
+  }
+
+  static void comArquivo(HttpExchange ex, Tratador t) throws java.io.IOException {
+    if (!"POST".equals(ex.getRequestMethod())) {
+      responder(ex, 405, "{\"erro\":\"use POST com o arquivo no corpo\"}");
+      return;
+    }
+    Path arq = Files.createTempFile("pva-", ".bin");
+    try (InputStream in = ex.getRequestBody()) {
+      long n = Files.copy(in, arq, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+      if (n == 0 || n > LIMITE_BYTES) {
+        responder(ex, 413, "{\"erro\":\"arquivo vazio ou maior que o limite (PVA_LIMITE_MB)\"}");
+        return;
+      }
+      String r = t.tratar(arq);
+      responder(ex, r.startsWith("{\"erro\"") ? 400 : 200, r);
+    } catch (Exception e) {
+      responder(ex, 500, Json.of(Json.obj("erro", String.valueOf(e))));
+    } finally {
+      Files.deleteIfExists(arq);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
   public static void main(String[] args) throws Exception {
+    Catalogo.carregar();
     long t0 = System.currentTimeMillis();
     InicializacaoSistemaSPEDFiscalPVA.getSingleton().iniciarSPEDFiscalPVA();
     ui = proxy(IInteracaoImportacaoEscrituracao.class);
@@ -379,21 +484,57 @@ public class PvaServer {
       String r = atualizarTabelas();
       responder(ex, r.contains("\"ok\":true") ? 200 : 502, r);
     });
-    srv.createContext("/validar", ex -> {
-      if (!"POST".equals(ex.getRequestMethod())) {
-        responder(ex, 405, "{\"erro\":\"use POST\"}");
+    srv.createContext("/validar", ex -> comArquivo(ex, arq -> Json.of(processar(arq, null))));
+    srv.createContext("/analisar", ex -> comArquivo(ex, arq -> Json.of(processar(arq, ANALISE))));
+    srv.createContext("/consultar", ex -> {
+      String sql = parametros(ex).getOrDefault("sql", "").trim();
+      if (!sql.regionMatches(true, 0, "SELECT", 0, 6) || SQL_PROIBIDO.matcher(sql).find()) {
+        responder(ex, 400, "{\"erro\":\"informe ?sql= com um único SELECT (sem ;, INTO, OUTFILE, LOAD_FILE)\"}");
         return;
       }
-      Path arq = Files.createTempFile("efd-", ".txt");
-      try (InputStream in = ex.getRequestBody()) {
-        long n = Files.copy(in, arq, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        if (n == 0 || n > LIMITE_BYTES) {
-          responder(ex, 413, "{\"erro\":\"arquivo vazio ou maior que o limite (PVA_LIMITE_MB)\"}");
-          return;
-        }
-        responder(ex, 200, validar(arq));
+      int limite = Math.min(Integer.parseInt(parametros(ex).getOrDefault("limite", "1000")), 10000);
+      comArquivo(ex, arq -> Json.of(processar(arq, consulta(sql, limite))));
+    });
+    srv.createContext("/cruzar", ex -> comArquivo(ex, zip -> {
+      Cruzamento.Lote lote = new Cruzamento.Lote();
+      Path txt;
+      try {
+        txt = desempacotar(zip, lote);
+      } catch (Exception e) {
+        return Json.of(Json.obj("erro", "ZIP inválido: " + e.getMessage()));
+      }
+      try {
+        return Json.of(processar(txt, (per, out) -> {
+          ANALISE.executar(per, out);
+          Map<String, Object> est = new java.util.LinkedHashMap<>();
+          List<Map<String, Object>> achados = Cruzamento.cruzar(per, lote, (Map<String, Object>) out.get("resumo"), est);
+          out.put("cruzamento", Json.obj("estatistica", est, "achados", achados));
+        }));
       } finally {
-        Files.deleteIfExists(arq);
+        Files.deleteIfExists(txt);
+      }
+    }));
+    srv.createContext("/mensagens", ex -> {
+      String cod = ex.getRequestURI().getPath().replaceFirst("^/mensagens/?", "");
+      if (cod.isEmpty()) {
+        responder(ex, 200, Json.of(Catalogo.mensagens()));
+      } else {
+        String m = Catalogo.mensagem(cod);
+        responder(ex, m == null ? 404 : 200, Json.of(Json.obj("codigo", cod, "descricao", m)));
+      }
+    });
+    srv.createContext("/tabelas", ex -> {
+      String nome = ex.getRequestURI().getPath().replaceFirst("^/tabelas/?", "");
+      try {
+        if (nome.isEmpty()) {
+          responder(ex, 200, Json.of(Catalogo.listarTabelas()));
+        } else {
+          Map<String, String> q = parametros(ex);
+          Map<String, Object> r = Catalogo.consultarTabela(nome, q.get("uf"), q.get("codigo"), q.get("data"));
+          responder(ex, ((List<?>) r.get("pacotes")).isEmpty() ? 404 : 200, Json.of(r));
+        }
+      } catch (Exception e) {
+        responder(ex, 400, Json.of(Json.obj("erro", String.valueOf(e))));
       }
     });
     srv.setExecutor(Executors.newFixedThreadPool(4));

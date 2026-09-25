@@ -2,3 +2,4 @@ resultados/
 *.log
 .DS_Store
 instalador/*.sh
+__pycache__/

@@ -29,8 +29,8 @@ RUN sed -i -e 's/^nuncaVerificarAtualizacoes=.*/nuncaVerificarAtualizacoes=true/
 # 2) Compila o servidor HTTP contra o fiscalpva.jar do PVA recém-instalado.
 FROM --platform=linux/amd64 eclipse-temurin:21-jdk AS compilador
 COPY --from=instalador /opt/pva /opt/pva
-COPY src/PvaServer.java /src/
-RUN javac -d /opt/pva-server -cp /opt/pva/fiscalpva.jar /src/PvaServer.java
+COPY src/*.java /src/
+RUN javac -d /opt/pva-server -cp /opt/pva/fiscalpva.jar /src/*.java
 
 # 3) Imagem final: PVA + servidor + bibliotecas i386 do MySQL embutido + Xvfb.
 FROM --platform=linux/amd64 debian:bookworm-slim

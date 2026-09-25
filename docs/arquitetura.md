@@ -117,10 +117,37 @@ InicializacaoTabelasExternas.getSingleton().carregarTabelas();
 A atualização roda no boot e a cada `PVA_ATUALIZAR_TABELAS_HORAS`, no **mesmo lock** das validações
 (`static synchronized`), para nunca trocar tabela no meio de uma validação.
 
+## Análise sobre o banco do PVA
+
+`processar(arquivo, etapa)` importa o arquivo, e, se ele foi integrado (`estado` não nulo), abre a persistência
+da escrituração e entrega a conexão para uma etapa extra antes de apagar tudo:
+
+| Endpoint | Etapa | Classe |
+|---|---|---|
+| `/validar` | nenhuma | `PvaServer` |
+| `/analisar` | `resumo` + verificações em SQL | `Verificacoes` |
+| `/cruzar` | análise + cruzamento com os XMLs do ZIP | `Cruzamento` |
+| `/consultar` | o `SELECT` do usuário | `PvaServer.consulta` |
+
+O banco da escrituração tem uma tabela `reg_xxxx` por registro, com as colunas do leiaute, `ID`, `ID_PAI` (o pai
+na hierarquia do arquivo: `reg_c190.ID_PAI = reg_c100.ID`) e `LINHA`. Valores monetários são `DECIMAL(21,2)`;
+números que no arquivo têm zero à esquerda (CNPJ, chave de acesso) perdem o zero e são normalizados antes de
+comparar (`Verificacoes.digitos`). `executarComandoSql` aceita qualquer comando, inclusive `DELETE`, por isso
+`/consultar` só deixa passar um `SELECT` sem `;`, `INTO` e funções de arquivo.
+
+Os XMLs do `/cruzar` são lidos com DOM, com DTD e entidades externas desligadas (XXE), sem namespace, pegando as
+tags pelo nome. O tomador do CT-e sai de `toma3/toma` (0 remetente, 1 expedidor, 2 recebedor, 3 destinatário) ou de
+`toma4`.
+
+`Catalogo` lê duas fontes do próprio PVA: `descritor/comum/mensagens/validador.prop` (dentro do
+`fiscalpva-dominio.jar`, no classpath) para o texto das mensagens, e os arquivos de `recursos/TabelasExternas`
+(`PACOTE$TABELA$versão$id`; primeira linha `versão=N COL1, COL2, ...`, dados separados por `|`, datas `ddmmaaaa`).
+O aviso de leiaute compara o `COD_VER` da primeira linha com a tabela `VERSOES_LEIAUTE` na data inicial.
+
 ## Concorrência
 
 O PVA é singleton: um MySQL embutido, uma escrituração "aberta", estado estático espalhado pelo núcleo.
-`validar()` e `atualizarTabelas()` são `static synchronized`. O `HttpServer` usa um pool de 4 threads só para
+`processar()` (usado por todos os `POST` de arquivo) e `atualizarTabelas()` são `static synchronized`. O `HttpServer` usa um pool de 4 threads só para
 que `/saude` responda enquanto uma validação longa segura o lock. Para validar em paralelo, rode vários
 contêineres (cada um com seu MySQL) atrás de um balanceador.
 
