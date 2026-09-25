@@ -27,9 +27,11 @@ de EFD que possa discordar do oficial.
 | `CREDITO_USO_CONSUMO` | alerta | C190 de CFOP 1556, 2556, 3556, 1407, 2407 com ICMS | Crédito de material de uso e consumo está adiado por lei (LC 87/1996, art. 33, I). O ICMS nesse C190 entra direto como crédito no E110. |
 | `CREDITO_ATIVO_DIRETO` | atencao | C190 de CFOP 1551, 2551, 3551, 1406, 2406 com ICMS | Crédito de ativo imobilizado é 1/48 por mês pelo CIAP (Bloco G), não integral na nota. |
 | `CREDITO_CST_SEM_DIREITO` | alerta | Entrada com CST final 40, 41, 50 ou 60 e ICMS | Isenta, não tributada, suspensa ou com ST já retida: não há ICMS próprio para creditar. |
-| `DEBITO_EM_SAIDA_ST` | atencao | Saída CFOP 5405 com ICMS | Mercadoria recebida com ST não costuma ter ICMS próprio na venda; débito aqui é erro de cadastro e imposto pago a mais. |
+| `DEBITO_EM_SAIDA_ST` | atencao | Saída CFOP 5405/6404 com ICMS (nota, C890 do SAT, C850 da NFC-e, C490 do ECF) e nenhum estorno de débito no E111 | Mercadoria recebida com ST não costuma ter ICMS próprio na venda; débito aqui é erro de cadastro e imposto pago a mais. |
+| `ESTORNO_DIFERE_DEBITO_ST` | alerta / atencao | Há estorno de débito no E111 (código `UF03xxxx`) e ele difere, em mais de R$ 1,00, do ICMS destacado nas vendas com CFOP 5403/5405/6403/6404 | Algumas UFs mandam destacar o ICMS na venda com ST e estornar na apuração (ex.: CE, Decreto 35.395/2023, código CE030007). Estorno **maior** que o débito reduz o imposto de outras operações (`alerta`); **menor** deixa débito de venda com ST na apuração (`atencao`). |
 | `INVENTARIO_AUSENTE_FEVEREIRO` | alerta | EFD de fevereiro sem H005 com data 31/12 do ano anterior | O inventário de fim de ano vai na EFD de fevereiro. Omissão muito cruzada pelas SEFAZ. |
-| `DIFAL_SEM_AJUSTE` | atencao | Compras interestaduais de uso/consumo ou ativo e nenhum ajuste de débito no E111 | Em regra o DIFAL dessas entradas entra como ajuste de débito. Conferência heurística: o código de ajuste varia por UF. |
+| `INVENTARIO_ZERADO` | alerta | H005 de 31/12 com valor zero ou sem nenhum H010, em estabelecimento com compras ou vendas | Estoque zerado no fim do ano quase nunca é real: as vendas do ano seguinte ficam sem estoque de origem (omissão de entrada). O PVA aceita o arquivo assim. |
+| `DIFAL_SEM_AJUSTE` | atencao / info | Compras interestaduais de uso/consumo ou ativo e nenhum ajuste de débito no E111; lista as notas | Em regra o DIFAL dessas entradas entra como ajuste de débito. Nas UFs de `PVA_UF_DIFAL_NA_ENTRADA` (padrão `CE`), onde o DIFAL costuma ser cobrado na entrada por guia própria, o nível cai para `info`. Conferência heurística: o código de ajuste varia por UF. |
 
 Além disso, `/analisar` devolve o `resumo` (contribuinte, período, apuração do E110 e totais por CFOP), que
 serve para montar o painel da carteira sem abrir o arquivo.
@@ -64,7 +66,8 @@ A tolerância de valor é R$ 0,01. Documentos cancelados ou denegados na EFD nã
 - `verificacoes.csv`: os achados acima, por arquivo, com quantidade e valor.
 - `saldo-credor.csv`: meses em que o **saldo credor a transportar** (E110) não é igual ao **saldo credor
   anterior** do mês seguinte do mesmo CNPJ/IE. Um mês reenviado sem ajustar os seguintes quebra a cadeia, e a
-  SEFAZ enxerga o crédito aparecendo do nada.
+  SEFAZ enxerga o crédito aparecendo do nada. A coluna `tipo` separa `quebra` (R$ 1,00 ou mais) de
+  `arredondamento` (centavos, comum em ERP).
 
 ```bash
 python3 exemplos/validar_lote.py 'carteira/**/*.txt' resultados --analisar

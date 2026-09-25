@@ -12,7 +12,7 @@ Contribuições são bem-vindas (veja o final).
   sai `MSG_BLOCO_SEM_MOVIMENTO`.
 - Qualquer inclusão ou exclusão de linha exige recontar `x990`, os `9900` e o `9999`. Contagem errada = arquivo
   **não integrado** (`estado: null`).
-- **Arquivo assinado** (vindo do ReceitanetBX) abre só para visualização: corte tudo depois do `|9999|`.
+- **Arquivo assinado** (vindo do ReceitanetBX) abre só para visualização: corte tudo depois do `|9999|` (o serviço já faz isso).
 
 ## Documentos (C100/C170/C190)
 

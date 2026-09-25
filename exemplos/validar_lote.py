@@ -11,7 +11,8 @@ Grava na pasta de resultados:
 Com --analisar (usa POST /analisar em vez de /validar):
   verificacoes.csv         achados de malha por arquivo (crédito de uso e consumo, etc.)
   saldo-credor.csv         meses em que o saldo credor transportado não bate com o
-                           saldo credor anterior do mês seguinte (mesmo CNPJ/IE)
+                           saldo credor anterior do mês seguinte (mesmo CNPJ/IE);
+                           tipo "quebra" a partir de R$ 1,00, "arredondamento" abaixo
 
 Só usa a biblioteca padrão do Python. Variável PVA_URL muda o endereço do serviço
 (padrão http://127.0.0.1:8095).
@@ -26,6 +27,8 @@ import urllib.request
 from decimal import Decimal
 
 URL = os.environ.get('PVA_URL', 'http://127.0.0.1:8095').rstrip('/')
+# Diferença de centavos entre meses é arredondamento do ERP; quebra de verdade fica acima disso.
+TOLERANCIA = Decimal('1.00')
 
 
 def enviar(caminho, rota):
@@ -66,7 +69,8 @@ def cadeia_saldo_credor(periodos):
             transportado = Decimal(str(ap_a.get('VL_SLD_CREDOR_TRANSPORTAR', 0)))
             anterior = Decimal(str(ap_b.get('VL_SLD_CREDOR_ANT', 0)))
             if transportado != anterior:
-                saida.append({'contribuinte': doc, 'ie': ie, 'mes': ini_a[:7], 'arquivo': arq_a,
+                tipo = 'arredondamento' if abs(anterior - transportado) < TOLERANCIA else 'quebra'
+                saida.append({'tipo': tipo, 'contribuinte': doc, 'ie': ie, 'mes': ini_a[:7], 'arquivo': arq_a,
                               'saldo_transportado': br(transportado), 'mes_seguinte': ini_b[:7], 'arquivo_seguinte': arq_b,
                               'saldo_credor_anterior': br(anterior), 'diferenca': br(anterior - transportado)})
     return saida
@@ -126,9 +130,11 @@ def main():
                    ['arquivo', 'codigo', 'nivel', 'titulo', 'quantidade', 'valor_total'], achados)
         quebras = cadeia_saldo_credor(periodos)
         gravar_csv(os.path.join(saida, 'saldo-credor.csv'),
-                   ['contribuinte', 'ie', 'mes', 'arquivo', 'saldo_transportado', 'mes_seguinte', 'arquivo_seguinte',
+                   ['tipo', 'contribuinte', 'ie', 'mes', 'arquivo', 'saldo_transportado', 'mes_seguinte', 'arquivo_seguinte',
                     'saldo_credor_anterior', 'diferenca'], quebras)
-        print(f'{len(achados)} achados de malha; {len(quebras)} quebras na cadeia de saldo credor.')
+        reais = sum(1 for q in quebras if q['tipo'] == 'quebra')
+        print(f'{len(achados)} achados de malha; {reais} quebras na cadeia de saldo credor'
+              f' (+{len(quebras) - reais} diferenças de centavos).')
     aprovados = sum(1 for r in resumo if r['valido'])
     print(f'\n{aprovados}/{len(resumo)} aprovados. Detalhes em {saida}/')
 

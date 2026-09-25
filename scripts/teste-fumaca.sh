@@ -18,6 +18,13 @@ r=$(validar efd-exemplo-valido.txt)
 echo "$r" | grep -q '"estado":"GERADA_PARA_ENTREGA"' || { echo "FALHOU (válido): $r"; exit 1; }
 echo "ok: arquivo válido aprovado"
 
+assinado=$(mktemp)
+{ cat "$AQUI/exemplos/efd-exemplo-valido.txt"; printf 'SBRCAAEPDR-assinatura-ficticia\r\n'; } > "$assinado"
+r=$(curl -sS --max-time 900 --data-binary @"$assinado" -H 'Content-Type: text/plain' "$URL/validar"); rm -f "$assinado"
+echo "$r" | grep -q '"estado":"GERADA_PARA_ENTREGA"' && echo "$r" | grep -q 'ASSINATURA_REMOVIDA' \
+  || { echo "FALHOU (assinado): $r"; exit 1; }
+echo "ok: arquivo assinado tem a assinatura cortada e é validado"
+
 r=$(validar efd-exemplo-com-erro.txt)
 echo "$r" | grep -q '"valido":false' && echo "$r" | grep -q 'MSG_VL_ICMS_ANALIT' || { echo "FALHOU (com erro): $r"; exit 1; }
 echo "ok: arquivo com erro reprovado com MSG_VL_ICMS_ANALIT"

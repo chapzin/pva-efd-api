@@ -102,6 +102,8 @@ final class Verificacoes {
     List<Map<String, Object>> cfops = new ArrayList<>();
     for (Map<String, String> r : linhas(per, "SELECT CFOP, SUM(VL_OPR) VL_OPR, SUM(VL_BC_ICMS) VL_BC_ICMS, SUM(VL_ICMS) VL_ICMS FROM ("
         + " SELECT CFOP, VL_OPR, VL_BC_ICMS, VL_ICMS FROM reg_c190 UNION ALL SELECT CFOP, VL_OPR, VL_BC_ICMS, VL_ICMS FROM reg_d190"
+        + " UNION ALL SELECT CFOP, VL_OPR, VL_BC_ICMS, VL_ICMS FROM reg_c890 UNION ALL SELECT CFOP, VL_OPR, VL_BC_ICMS, VL_ICMS FROM reg_c850"
+        + " UNION ALL SELECT CFOP, VL_OPR, VL_BC_ICMS, VL_ICMS FROM reg_c490"
         + ") t GROUP BY CFOP ORDER BY CFOP")) {
       cfops.add(Json.obj("cfop", r.get("CFOP"), "valorOperacao", dec(r.get("VL_OPR")), "baseIcms", dec(r.get("VL_BC_ICMS")),
           "icms", dec(r.get("VL_ICMS"))));
@@ -138,54 +140,128 @@ final class Verificacoes {
             + " retido por substituição). Valor de ICMS nesses C190 de entrada é crédito sem origem.",
         "LC 87/1996, art. 20 e 23; Ajuste SINIEF 20/2012 (tabela de CST)");
 
-    add(achados, per, docC190 + "c.IND_OPER = 1 AND a.CFOP = 5405 AND a.VL_ICMS > 0 ORDER BY a.LINHA",
-        "DEBITO_EM_SAIDA_ST", "atencao", "Débito de ICMS próprio em venda de mercadoria já tributada por ST",
-        "CFOP 5405 é venda de mercadoria recebida com ICMS retido (contribuinte substituído); o imposto próprio normalmente"
-            + " não é destacado. Débito aqui costuma ser erro de cadastro e aumenta o imposto a pagar.",
-        "Tabela de CFOP (Convênio s/nº de 1970); Convênio ICMS 142/2018");
+    debitoSaidaSt(achados, per);
 
     Map<?, ?> periodo = (Map<?, ?>) resumo.get("periodo");
     LocalDate ini = periodo == null || periodo.get("inicio") == null ? null : LocalDate.parse((String) periodo.get("inicio"));
     if (ini != null && ini.getMonthValue() == 2) {
       LocalDate fimAno = LocalDate.of(ini.getYear() - 1, 12, 31);
-      boolean tem = false;
-      for (Map<String, String> h : linhas(per, "SELECT DT_INV, VL_INV FROM reg_h005")) if (fimAno.equals(data(h.get("DT_INV")))) tem = true;
-      if (!tem) {
+      List<Map<String, String>> invs = linhas(per, "SELECT h.DT_INV, h.VL_INV, (SELECT COUNT(*) FROM reg_h010 i WHERE i.ID_PAI = h.ID) N"
+          + " FROM reg_h005 h");
+      Map<String, String> inv = null;
+      for (Map<String, String> h : invs) if (fimAno.equals(data(h.get("DT_INV")))) inv = h;
+      if (inv == null) {
         achados.add(achado("INVENTARIO_AUSENTE_FEVEREIRO", "alerta", "Inventário de 31/12 não informado na EFD de fevereiro",
             "O inventário levantado em 31/12 deve ser informado no Bloco H da EFD do segundo mês seguinte (fevereiro). A"
                 + " ausência é uma das omissões mais cruzadas pelas SEFAZ.",
             "Guia Prático EFD ICMS/IPI, Bloco H; Perguntas Frequentes do SPED Fiscal",
             List.of(Json.obj("registro", "H005", "esperado", fimAno.toString()))));
+      } else if ((dec(inv.get("VL_INV")).signum() == 0 || inteiro(inv.get("N")) == 0) && temMovimento(per)) {
+        achados.add(achado("INVENTARIO_ZERADO", "alerta", "Inventário de 31/12 zerado ou sem itens em empresa com movimento",
+            "O H005 de 31/12 está com valor zero ou sem nenhum H010, mas o estabelecimento compra e vende mercadorias. Estoque"
+                + " zerado no fim do ano quase nunca é real: para a SEFAZ, tudo o que foi vendido no ano seguinte sai sem"
+                + " estoque de origem (omissão de entrada) e o custo das vendas fica sem lastro.",
+            "RICMS (livro Registro de Inventário); Guia Prático EFD ICMS/IPI, Bloco H",
+            List.of(Json.obj("registro", "H005", "data", fimAno.toString(), "valorInventario", dec(inv.get("VL_INV")),
+                "itens", inteiro(inv.get("N"))))));
       }
     }
 
     // DIFAL de uso/consumo e ativo de contribuinte vai como ajuste de débito no E111
     // (código UF + 0 + 0/5); sem nenhum, a entrada interestadual merece conferência.
-    List<Map<String, String>> inter = linhas(per, "SELECT SUM(VL_OPR) VL FROM reg_c190 WHERE CFOP IN (2551, 2556, 2406, 2407)");
-    BigDecimal vInter = inter.isEmpty() ? BigDecimal.ZERO : dec(inter.get(0).get("VL"));
-    if (vInter.signum() > 0) {
+    // UFs que cobram o DIFAL na entrada por guia própria (PVA_UF_DIFAL_NA_ENTRADA) caem para "info".
+    List<Map<String, String>> inter = linhas(per, docC190.replace(" WHERE ", " WHERE c.IND_OPER = 0 AND ")
+        + "a.CFOP IN (2551, 2556, 2406, 2407) AND a.VL_OPR > 0 ORDER BY a.LINHA", 5000);
+    if (!inter.isEmpty()) {
       List<Map<String, String>> aj = linhas(per, "SELECT COUNT(*) N FROM reg_e111 WHERE SUBSTRING(COD_AJ_APUR, 3, 1) = '0'"
           + " AND SUBSTRING(COD_AJ_APUR, 4, 1) IN ('0', '5')");
       if (inteiro(aj.get(0).get("N")) == 0) {
-        achados.add(achado("DIFAL_SEM_AJUSTE", "atencao", "Entrada interestadual de uso/consumo ou ativo sem ajuste de débito",
+        Map<?, ?> contrib = (Map<?, ?>) resumo.get("contribuinte");
+        String uf = contrib == null ? null : (String) contrib.get("uf");
+        boolean naEntrada = uf != null && UF_DIFAL_NA_ENTRADA.contains(uf.toUpperCase());
+        List<Map<String, Object>> oc = new ArrayList<>();
+        for (Map<String, String> r : inter) oc.add(ocorrencia(r, dec(r.get("VL_OPR"))));
+        achados.add(achado("DIFAL_SEM_AJUSTE", naEntrada ? "info" : "atencao",
+            "Entrada interestadual de uso/consumo ou ativo sem ajuste de débito",
             "Há compras interestaduais para uso, consumo ou ativo, mas nenhum ajuste de débito no E111. Em regra o diferencial"
-                + " de alíquotas (DIFAL) dessas entradas é lançado como ajuste de débito. Confira se é devido.",
-            "CF/88, art. 155, §2º, VII e VIII; LC 87/1996, art. 12, XV (verificação heurística)",
-            List.of(Json.obj("registro", "C190", "cfops", "2551, 2556, 2406, 2407", "valor", vInter))));
+                + " de alíquotas (DIFAL) dessas entradas é lançado como ajuste de débito. Confira se é devido."
+                + (naEntrada ? " Nesta UF o DIFAL costuma ser cobrado na entrada, por guia própria (DAE): confira o pagamento"
+                    + " da guia em vez do E111." : ""),
+            "CF/88, art. 155, §2º, VII e VIII; LC 87/1996, art. 12, XV (verificação heurística; o valor é o da operação)", oc));
       }
     }
     return achados;
   }
 
+  static final java.util.Set<String> UF_DIFAL_NA_ENTRADA = java.util.Set.of(
+      System.getenv().getOrDefault("PVA_UF_DIFAL_NA_ENTRADA", "CE").toUpperCase().split("[,; ]+"));
+
+  static final BigDecimal TOLERANCIA = new BigDecimal("1.00");
+
+  private static boolean temMovimento(IPersistencia per) throws Exception {
+    return inteiro(linhas(per, "SELECT (SELECT COUNT(*) FROM reg_c190 WHERE VL_OPR > 0) + (SELECT COUNT(*) FROM reg_c890 WHERE VL_OPR > 0)"
+        + " + (SELECT COUNT(*) FROM reg_c850 WHERE VL_OPR > 0) + (SELECT COUNT(*) FROM reg_c490 WHERE VL_OPR > 0) N").get(0).get("N")) > 0;
+  }
+
+  // Saídas de mercadoria com ST: C190 de nota própria e os resumos de cupom (C890 SAT, C850 NFC-e em
+  // C800, C490 ECF). Consulta com colunas iguais para dar para somar tudo junto.
+  private static String saidasSt(String cfops) {
+    String f = " CFOP IN (" + cfops + ") AND VL_ICMS > 0";
+    return "SELECT 'C190' REG, a.LINHA, c.LINHA LINHA_DOC, c.NUM_DOC, c.CHV_NFE, c.COD_PART, a.CFOP, a.CST_ICMS, a.VL_OPR, a.VL_ICMS"
+        + " FROM reg_c190 a JOIN reg_c100 c ON a.ID_PAI = c.ID WHERE c.IND_OPER = 1 AND a.CFOP IN (" + cfops + ") AND a.VL_ICMS > 0"
+        + " UNION ALL SELECT 'C890', LINHA, NULL, NULL, NULL, NULL, CFOP, CST_ICMS, VL_OPR, VL_ICMS FROM reg_c890 WHERE" + f
+        + " UNION ALL SELECT 'C850', LINHA, NULL, NULL, NULL, NULL, CFOP, CST_ICMS, VL_OPR, VL_ICMS FROM reg_c850 WHERE" + f
+        + " UNION ALL SELECT 'C490', LINHA, NULL, NULL, NULL, NULL, CFOP, CST_ICMS, VL_OPR, VL_ICMS FROM reg_c490 WHERE" + f;
+  }
+
+  // Venda de mercadoria com ST e ICMS próprio destacado. Sem estorno de débito no E111 é,
+  // em regra, imposto pago a mais. Algumas UFs mandam destacar e estornar (ex.: CE, Decreto
+  // 35.395/2023, código CE030007): aí o que importa é o estorno bater com o débito.
+  private static void debitoSaidaSt(List<Map<String, Object>> achados, IPersistencia per) throws Exception {
+    List<Map<String, String>> est = linhas(per, "SELECT COD_AJ_APUR, SUM(VL_AJ_APUR) V FROM reg_e111"
+        + " WHERE SUBSTRING(COD_AJ_APUR, 3, 2) = '03' GROUP BY COD_AJ_APUR");
+    BigDecimal estorno = BigDecimal.ZERO;
+    List<String> codigos = new ArrayList<>();
+    for (Map<String, String> r : est) {
+      estorno = estorno.add(dec(r.get("V")));
+      codigos.add(r.get("COD_AJ_APUR"));
+    }
+    if (estorno.signum() == 0) {
+      List<Map<String, Object>> oc = new ArrayList<>();
+      for (Map<String, String> r : linhas(per, saidasSt("5405, 6404") + " ORDER BY LINHA", 5000)) oc.add(ocorrencia(r, dec(r.get("VL_ICMS"))));
+      if (!oc.isEmpty()) achados.add(achado("DEBITO_EM_SAIDA_ST", "atencao", "Débito de ICMS próprio em venda de mercadoria já tributada por ST",
+          "CFOP 5405/6404 é venda de mercadoria recebida com ICMS retido (contribuinte substituído); o imposto próprio normalmente"
+              + " não é destacado. Débito aqui, sem estorno no E111, costuma ser erro de cadastro e aumenta o imposto a pagar.",
+          "Tabela de CFOP (Convênio s/nº de 1970); Convênio ICMS 142/2018", oc));
+      return;
+    }
+    List<Map<String, String>> tot = linhas(per, "SELECT SUM(VL_ICMS) V FROM (" + saidasSt("5403, 5405, 6403, 6404") + ") t");
+    BigDecimal debito = tot.isEmpty() ? BigDecimal.ZERO : dec(tot.get(0).get("V"));
+    BigDecimal dif = estorno.subtract(debito);
+    if (dif.abs().compareTo(TOLERANCIA) <= 0) return;
+    boolean aMais = dif.signum() > 0;
+    achados.add(achado("ESTORNO_DIFERE_DEBITO_ST", aMais ? "alerta" : "atencao",
+        aMais ? "Estorno de débito maior que o ICMS destacado nas vendas com ST" : "Estorno de débito menor que o ICMS destacado nas vendas com ST",
+        "O E111 estorna débito (" + String.join(", ", codigos) + ") e há ICMS destacado em vendas de mercadoria com ST (CFOP"
+            + " 5403/5405/6403/6404). Onde a UF manda destacar e estornar, os dois têm que ser iguais. "
+            + (aMais ? "Estorno maior reduz o ICMS de outras operações: é imposto a menos." : "Estorno menor deixa débito"
+                + " de venda com ST na apuração: confira se é destaque indevido (imposto pago a mais) ou venda que não é de ST."),
+        "Guia Prático EFD ICMS/IPI, registro E111; legislação da UF (ex.: CE, Decreto 35.395/2023 e IN 91/2023)",
+        List.of(Json.obj("registro", "E111", "codigos", String.join(", ", codigos), "estorno", estorno, "debitoSaidasSt", debito,
+            "valor", dif.abs()))));
+  }
+
+  private static Map<String, Object> ocorrencia(Map<String, String> r, BigDecimal valor) {
+    return Json.obj("registro", r.getOrDefault("REG", "C190"), "linha", inteiro(r.get("LINHA")), "linhaDocumento", inteiro(r.get("LINHA_DOC")),
+        "documento", r.get("NUM_DOC"), "chave", r.get("CHV_NFE") == null ? null : digitos(r.get("CHV_NFE"), 44),
+        "participante", r.get("COD_PART"), "cfop", r.get("CFOP"), "cst", r.get("CST_ICMS"), "valorOperacao", dec(r.get("VL_OPR")),
+        "valor", valor);
+  }
+
   private static void add(List<Map<String, Object>> achados, IPersistencia per, String sql, String codigo, String nivel,
       String titulo, String explicacao, String fundamento) throws Exception {
     List<Map<String, Object>> oc = new ArrayList<>();
-    for (Map<String, String> r : linhas(per, sql, 5000)) {
-      oc.add(Json.obj("registro", "C190", "linha", inteiro(r.get("LINHA")), "linhaDocumento", inteiro(r.get("LINHA_DOC")),
-          "documento", r.get("NUM_DOC"), "chave", r.get("CHV_NFE") == null ? null : digitos(r.get("CHV_NFE"), 44),
-          "participante", r.get("COD_PART"), "cfop", r.get("CFOP"), "cst", r.get("CST_ICMS"), "valorOperacao", dec(r.get("VL_OPR")),
-          "valor", dec(r.get("VL_ICMS"))));
-    }
+    for (Map<String, String> r : linhas(per, sql, 5000)) oc.add(ocorrencia(r, dec(r.get("VL_ICMS"))));
     if (!oc.isEmpty()) achados.add(achado(codigo, nivel, titulo, explicacao, fundamento, oc));
   }
 }

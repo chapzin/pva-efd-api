@@ -201,8 +201,8 @@ Para volume grande, prefira um servidor x86_64 (qualquer VPS Linux comum).
 - **As verificações de malha são indícios**, não auto de infração: regras estaduais e benefícios podem
   justificar o que parece erro. Cada achado traz o fundamento para o contador decidir.
 - **Só valida.** Não assina, não transmite e não gera recibo. A entrega continua sendo pelo ReceitanetBX.
-- **Arquivo assinado** precisa ter a assinatura removida antes (apague tudo depois da linha `|9999|`); o PVA abre
-  arquivo assinado só para visualização.
+- **Arquivo assinado** (ReceitanetBX) é aceito: o serviço corta a assinatura depois do `|9999|` antes de validar e
+  avisa com `ASSINATURA_REMOVIDA`.
 - Cobre a **EFD ICMS/IPI** (SPED Fiscal). EFD-Contribuições, ECD e ECF usam PVAs diferentes e não estão incluídos.
 
 ## Aviso legal

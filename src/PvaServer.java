@@ -160,6 +160,23 @@ public class PvaServer {
     return out;
   }
 
+  // Arquivo assinado abre só para visualização no PVA (estado nulo, sem validação).
+  // A assinatura fica depois da linha |9999|; cortar ali não muda a escrituração.
+  static boolean removerAssinatura(Path arq) throws java.io.IOException {
+    byte[] b = Files.readAllBytes(arq);
+    byte[] marca = "|9999|".getBytes(StandardCharsets.ISO_8859_1);
+    for (int i = 0; i + marca.length <= b.length; i++) {
+      if ((i == 0 || b[i - 1] == '\n') && java.util.Arrays.equals(b, i, i + marca.length, marca, 0, marca.length)) {
+        int fim = i;
+        while (fim < b.length && b[fim] != '\n') fim++;
+        if (fim >= b.length - 1) return false;
+        Files.write(arq, java.util.Arrays.copyOf(b, fim + 1));
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Conferência antes do PVA: o leiaute errado para o período é o motivo mais comum
   // de arquivo recusado sem explicação clara.
   static List<Map<String, Object>> avisos(Path arq) {
@@ -195,7 +212,16 @@ public class PvaServer {
     mensagens.clear();
     long t = System.currentTimeMillis();
     Map<String, Object> out = Json.obj("versaoPva", versao);
-    out.put("avisos", avisos(arq));
+    List<Map<String, Object>> av = avisos(arq);
+    boolean assinado = false;
+    try {
+      assinado = removerAssinatura(arq);
+    } catch (java.io.IOException e) {
+      System.err.println("assinatura: " + e);
+    }
+    if (assinado) av.add(Json.obj("codigo", "ASSINATURA_REMOVIDA", "mensagem", "O arquivo veio assinado (ReceitanetBX ou"
+        + " PVA). A assinatura depois do |9999| foi removida para validar; o conteúdo da escrituração é o mesmo."));
+    out.put("avisos", av);
     try {
       controle.importarEscrituracao(arq.toString(), ui, progresso, false, 1000, 1000);
       String estado = capturada == null ? null : String.valueOf(capturada.getEstado());

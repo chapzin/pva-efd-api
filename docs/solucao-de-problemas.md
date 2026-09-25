@@ -61,8 +61,9 @@ ordem, `x990` errado, leiaute (`COD_VER`) que o PVA não conhece para o período
 
 ## Arquivo assinado abre "só para visualização"
 
-O PVA não valida um arquivo já assinado. Remova tudo o que vem depois da linha `|9999|...|` (é o bloco da
-assinatura digital) e mande de novo.
+O PVA não valida um arquivo já assinado. O serviço remove sozinho tudo o que vem depois da linha `|9999|...|`
+(o bloco da assinatura digital) e avisa com `ASSINATURA_REMOVIDA` em `avisos`. Se validar o arquivo direto no
+PVA, fora do serviço, faça esse corte à mão.
 
 ## `"falha": "erro ao conectar ao banco"`
 
