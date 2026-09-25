@@ -36,8 +36,12 @@ continuar, veja [nova-versao-do-pva.md](nova-versao-do-pva.md).
 
 ## O build falha no `curl` do instalador
 
-O site da Receita estava fora do ar ou bloqueou a origem. Tente de novo mais tarde. Em rede corporativa com
-proxy, passe `--build-arg HTTPS_PROXY=...`.
+`curl: (35) Recv failure: Connection reset by peer` quase sempre é o site da Receita recusando uma conexão de
+**fora do Brasil** (VPS no exterior, GitHub Actions, VPN). Baixe o instalador de uma máquina no Brasil e coloque
+em [`instalador/`](../instalador/LEIA-ME.md); o build usa o arquivo local.
+
+Se estiver no Brasil, o site pode estar fora do ar: o build já tenta 5 vezes, e vale tentar mais tarde. Em rede
+corporativa com proxy, passe `--build-arg HTTPS_PROXY=...`.
 
 ## `mysqld` não sobe (erro de biblioteca ou "Fatal error: Please read Security section")
 

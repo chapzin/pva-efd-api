@@ -68,6 +68,9 @@ Explicação completa, sem jargão: **[docs/como-funciona.md](docs/como-funciona
 - Máquina **x86_64** (Linux, Windows com WSL2, Mac Intel), **ou** Mac com Apple Silicon usando emulação (funciona, mais devagar; veja abaixo).
 - ~3 GB livres em disco e 2 GB de RAM para o contêiner.
 - Acesso à internet no build (baixa o instalador do PVA de `servicos.receita.fazenda.gov.br`) e no uso (atualização das tabelas externas).
+- **Estar no Brasil** na hora do build: o site da Receita costuma recusar conexões de outros países (inclusive
+  servidores de CI como o GitHub Actions). Fora do Brasil, baixe o instalador à mão e coloque em
+  [`instalador/`](instalador/LEIA-ME.md).
 
 ### Subir o serviço
 

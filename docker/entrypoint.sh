@@ -13,7 +13,7 @@ Xvfb "$DISPLAY" -screen 0 1280x1024x24 -nolisten tcp &
 XVFB=$!
 for _ in $(seq 50); do [ -S "/tmp/.X11-unix/X${NUM}" ] && break; sleep 0.2; done
 
-cd /opt/pva
+cd /opt/pva || exit 1
 ./jre/bin/java -Dfile.encoding=ISO-8859-1 -XX:+UseParallelGC ${JAVA_OPTS:-} \
   --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED \
   --add-opens=java.base/java.text=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED \

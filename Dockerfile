@@ -1,6 +1,7 @@
 # check=skip=FromPlatformFlagConstDisallowed
 # PVA EFD ICMS/IPI oficial (Receita Federal) como serviço HTTP de validação.
-# O instalador é baixado do site da Receita durante o build e conferido por SHA-256;
+# O instalador é baixado do site da Receita durante o build (ou lido de instalador/)
+# e conferido por SHA-256;
 # este repositório não contém nem redistribui nenhum arquivo do PVA.
 # Só existe para linux x86_64: o MySQL 5.0 embutido é i386 e o JRE é amd64.
 
@@ -10,9 +11,14 @@ ARG PVA_VERSAO=6.1.1
 ARG PVA_SHA256=ace6c9bf1b344a65cd4dd5a8706647ef17c1d737354edbae98171690cd50db5c
 ARG PVA_URL=https://servicos.receita.fazenda.gov.br/publico/programas/Sped/SpedFiscal/SpedEFD_linux_x86_64-${PVA_VERSAO}.sh
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
-RUN curl -fsSL -o /tmp/pva.sh "$PVA_URL" && \
+# Se instalador/ trouxer o .sh (baixado à mão), usa ele; senão baixa da Receita.
+# O site da Receita costuma recusar conexões de fora do Brasil.
+COPY instalador/ /tmp/instalador/
+RUN f="/tmp/instalador/SpedEFD_linux_x86_64-${PVA_VERSAO}.sh"; \
+    if [ -f "$f" ]; then cp "$f" /tmp/pva.sh; \
+    else curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o /tmp/pva.sh "$PVA_URL"; fi && \
     echo "${PVA_SHA256}  /tmp/pva.sh" | sha256sum -c - && \
-    cd /tmp && sh /tmp/pva.sh -q -dir /opt/pva -overwrite && rm /tmp/pva.sh
+    cd /tmp && sh /tmp/pva.sh -q -dir /opt/pva -overwrite && rm -rf /tmp/pva.sh /tmp/instalador
 # O diálogo "atualizar tabelas externas?" é modal e trava a validação sem operador;
 # o servidor atualiza as tabelas por conta própria (PVA_ATUALIZAR_TABELAS_HORAS).
 RUN sed -i -e 's/^nuncaVerificarAtualizacoes=.*/nuncaVerificarAtualizacoes=true/' \
