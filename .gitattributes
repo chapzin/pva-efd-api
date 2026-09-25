@@ -1,0 +1,2 @@
+exemplos/*.txt -text
+*.sh text eol=lf

@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-e-teste:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Exemplos batem com o gerador
+        run: |
+          python3 exemplos/gerar_exemplos.py
+          git diff --exit-code exemplos/
+
+      - name: Build da imagem (baixa o PVA do site da Receita)
+        run: docker build -t pva-efd-api:ci .
+
+      - name: Sobe o serviço
+        run: docker run -d --name pva -p 127.0.0.1:8095:8095 pva-efd-api:ci
+
+      - name: Teste de fumaça
+        run: ./scripts/teste-fumaca.sh
+
+      - name: Logs do contêiner
+        if: always()
+        run: docker logs pva 2>&1 | tail -100

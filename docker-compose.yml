@@ -1,0 +1,17 @@
+# Sobe o validador em http://127.0.0.1:8095 (só acessível desta máquina).
+#   docker compose up -d --build
+services:
+  pva:
+    build: .
+    image: pva-efd-api:6.1.1
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      # Não há autenticação: não troque 127.0.0.1 por 0.0.0.0 sem um proxy na frente.
+      - "127.0.0.1:8095:8095"
+    mem_limit: 2g
+    environment:
+      # Baixa as tabelas externas da Receita no boot e a cada N horas (0 = só manual).
+      PVA_ATUALIZAR_TABELAS_HORAS: "24"
+      # Tamanho máximo do TXT aceito em /validar.
+      PVA_LIMITE_MB: "512"
