@@ -160,7 +160,8 @@ final class Verificacoes {
         achados.add(achado("INVENTARIO_ZERADO", "alerta", "Inventário de 31/12 zerado ou sem itens em empresa com movimento",
             "O H005 de 31/12 está com valor zero ou sem nenhum H010, mas o estabelecimento compra e vende mercadorias. Estoque"
                 + " zerado no fim do ano quase nunca é real: para a SEFAZ, tudo o que foi vendido no ano seguinte sai sem"
-                + " estoque de origem (omissão de entrada) e o custo das vendas fica sem lastro.",
+                + " estoque de origem (omissão de entrada) e o custo das vendas fica sem lastro. Exceção: estabelecimento aberto"
+                + " depois de 31/12 (a EFD não traz a data de abertura; confira).",
             "RICMS (livro Registro de Inventário); Guia Prático EFD ICMS/IPI, Bloco H",
             List.of(Json.obj("registro", "H005", "data", fimAno.toString(), "valorInventario", dec(inv.get("VL_INV")),
                 "itens", inteiro(inv.get("N"))))));
