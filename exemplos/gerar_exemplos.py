@@ -58,6 +58,12 @@ CHAVE_ESQUECIDA = dv_chave('23' + '2501' + CNPJ_FORNECEDOR + '55' + '001' + '000
 
 
 NR_SAT = '900000001'
+CNPJ_SOFTWARE_HOUSE = dv_cnpj('998887770001')  # software house fictícia
+SIGN_AC = 'ZmljdGljaW8='
+# Assinatura estrutural (não criptográfica): o suficiente para leitores que
+# exigem o elemento, como a ingestão de acervos fiscais.
+ASSINATURA = ('<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo/>'
+              '<SignatureValue>ZmljdGljaW8=</SignatureValue><KeyInfo/></Signature>')
 
 
 def chave_cfe(n):
@@ -135,14 +141,15 @@ def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop
             f'<vICMS>{v_icms}</vICMS></ICMS00>')
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00"><NFe><infNFe Id="NFe' + chave + '" versao="4.00">'
-            f'<ide><cUF>23</cUF><mod>55</mod><serie>1</serie><nNF>{int(chave[25:34])}</nNF><dhEmi>{dia}T10:00:00-03:00</dhEmi>'
-            f'<tpNF>{tp_nf}</tpNF></ide><emit><CNPJ>{emit}</CNPJ><xNome>EMITENTE FICTICIO</xNome><CRT>{crt}</CRT></emit>'
+            f'<ide><cUF>23</cUF><cNF>{chave[35:43]}</cNF><mod>55</mod><serie>1</serie><nNF>{int(chave[25:34])}</nNF>'
+            f'<dhEmi>{dia}T10:00:00-03:00</dhEmi><tpNF>{tp_nf}</tpNF><tpEmis>{chave[34]}</tpEmis><cDV>{chave[43]}</cDV></ide><emit><CNPJ>{emit}</CNPJ><xNome>EMITENTE FICTICIO</xNome><CRT>{crt}</CRT></emit>'
             f'<dest><CNPJ>{dest}</CNPJ><xNome>DESTINATARIO FICTICIO</xNome></dest>'
             f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><CFOP>{cfop}</CFOP><vProd>{v_nf}</vProd></prod>'
             f'<imposto><ICMS>{icms}</ICMS></imposto></det>'
             f'<total><ICMSTot><vBC>{v_icms and v_nf}</vBC><vICMS>{v_icms}</vICMS><vNF>{v_nf}</vNF></ICMSTot></total>'
-            '</infNFe></NFe><protNFe versao="4.00"><infProt><chNFe>' + chave + '</chNFe><cStat>100</cStat>'
-            '<xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></nfeProc>\n')
+            '</infNFe>' + ASSINATURA + '</NFe><protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><chNFe>' + chave + '</chNFe>'
+            f'<dhRecbto>{dia}T10:00:05-03:00</dhRecbto><nProt>3232500000{chave[28:34]}</nProt><digVal>ZmljdGljaW8=</digVal>'
+            '<cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></nfeProc>\n')
 
 
 def cfe(n, dia, cfop, cst, v, v_icms):
@@ -150,17 +157,20 @@ def cfe(n, dia, cfop, cst, v, v_icms):
             f'<ICMS40><Orig>0</Orig><CST>{cst}</CST></ICMS40>')
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             f'<CFe><infCFe Id="CFe{chave_cfe(n)}" versao="0.08"><ide><cUF>23</cUF><mod>59</mod><nserieSAT>{NR_SAT}</nserieSAT>'
-            f'<nCFe>{n:06d}</nCFe><dEmi>2025{dia}</dEmi><hEmi>100000</hEmi></ide><emit><CNPJ>{CNPJ}</CNPJ>'
+            f'<cNF>{n:06d}</cNF><nCFe>{n:06d}</nCFe><dEmi>2025{dia}</dEmi><hEmi>100000</hEmi><cDV>{chave_cfe(n)[43]}</cDV>'
+            f'<tpAmb>2</tpAmb><CNPJ>{CNPJ_SOFTWARE_HOUSE}</CNPJ><signAC>{SIGN_AC}</signAC>'
+            f'<assinaturaQRCODE>{SIGN_AC}</assinaturaQRCODE><numeroCaixa>001</numeroCaixa></ide><emit><CNPJ>{CNPJ}</CNPJ>'
             '<xNome>EMPRESA FICTICIA</xNome></emit><dest/>'
             f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><CFOP>{cfop}</CFOP><vItem>{v}</vItem></prod>'
             f'<imposto><ICMS>{icms}</ICMS></imposto></det><total><ICMSTot><vICMS>{v_icms}</vICMS></ICMSTot><vCFe>{v}</vCFe>'
-            '</total></infCFe></CFe>\n')
+            '</total></infCFe>' + ASSINATURA + '</CFe>\n')
 
 
 def cfe_canc(n):
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             f'<CFeCanc><infCFe Id="CFe{dv_chave(chave_cfe(n)[:31] + "999999999999")}" chCanc="CFe{chave_cfe(n)}">'
-            '<ide><cUF>23</cUF><mod>59</mod></ide></infCFe></CFeCanc>\n')
+            f'<ide><cUF>23</cUF><mod>59</mod><CNPJ>{CNPJ_SOFTWARE_HOUSE}</CNPJ><signAC>{SIGN_AC}</signAC>'
+            f'<numeroCaixa>001</numeroCaixa></ide><emit><CNPJ>{CNPJ}</CNPJ></emit></infCFe>' + ASSINATURA + '</CFeCanc>\n')
 
 
 if __name__ == '__main__':

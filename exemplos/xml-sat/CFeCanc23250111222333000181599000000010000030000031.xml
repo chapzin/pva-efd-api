@@ -1,2 +1,2 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<CFeCanc><infCFe Id="CFe23250111222333000181599000000019999999999994" chCanc="CFe23250111222333000181599000000010000030000031"><ide><cUF>23</cUF><mod>59</mod></ide></infCFe></CFeCanc>
+<CFeCanc><infCFe Id="CFe23250111222333000181599000000019999999999994" chCanc="CFe23250111222333000181599000000010000030000031"><ide><cUF>23</cUF><mod>59</mod><CNPJ>99888777000100</CNPJ><signAC>ZmljdGljaW8=</signAC><numeroCaixa>001</numeroCaixa></ide><emit><CNPJ>11222333000181</CNPJ></emit></infCFe><Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo/><SignatureValue>ZmljdGljaW8=</SignatureValue><KeyInfo/></Signature></CFeCanc>
