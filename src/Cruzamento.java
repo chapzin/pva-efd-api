@@ -78,11 +78,12 @@ final class Cruzamento {
       } else if (raiz.getTagName().equals("CFe")) {
         Doc x = cfe(primeiro(raiz, "infCFe"), nome);
         lote.docs.put(x.chave, x);
+      } else if (infCte != null) {
+        // Antes do infNFe: o CT-e lista as NF-e transportadas em infDoc/infNFe.
+        Doc x = cte(infCte, raiz, nome);
+        lote.docs.put(x.chave, x);
       } else if (infNFe != null) {
         Doc x = nfe(infNFe, raiz, nome);
-        lote.docs.put(x.chave, x);
-      } else if (infCte != null) {
-        Doc x = cte(infCte, raiz, nome);
         lote.docs.put(x.chave, x);
       } else if (evento != null) {
         String tp = texto(evento, "tpEvento");
@@ -91,11 +92,16 @@ final class Cruzamento {
         boolean homologado = stat == null || stat.equals("135") || stat.equals("136") || stat.equals("155");
         if ("110111".equals(tp) && ch != null && homologado) lote.cancelamentos.add(ch);
       } else {
-        lote.ignorados.add(nome);
+        lote.ignorados.add(nome + " (raiz <" + raiz.getTagName() + "> não é NF-e, NFC-e, CT-e, CF-e nem evento)");
       }
     } catch (Exception e) {
-      lote.ignorados.add(nome + " (" + e.getMessage() + ")");
+      lote.ignorados.add(nome + " (" + motivo(e) + ")");
     }
+  }
+
+  static String motivo(Exception e) {
+    if (e instanceof org.xml.sax.SAXException) return "XML malformado: " + e.getMessage();
+    return e.getMessage() == null ? e.getClass().getSimpleName() : e.getClass().getSimpleName() + ": " + e.getMessage();
   }
 
   private static Doc nfe(Element inf, Element raiz, String nome) {
@@ -128,7 +134,7 @@ final class Cruzamento {
     if (prot == null) return;
     d.cStat = texto(prot, "cStat");
     String ch = chaveDe(texto(prot, tag));
-    if (ch.length() == 44 && !ch.equals(d.chave)) {
+    if (ch != null && ch.length() == 44 && !ch.equals(d.chave)) {
       d.idAssinado = d.chave;
       d.chave = ch;
     }
@@ -179,6 +185,7 @@ final class Cruzamento {
     Doc d = new Doc();
     d.arquivo = nome;
     d.chave = chaveDe(inf.getAttribute("Id"));
+    if (d.chave.length() != 44) throw new IllegalArgumentException("infCte sem Id de 44 dígitos (versao " + inf.getAttribute("versao") + ")");
     d.tipo = "CT-e";
     Element ide = primeiro(inf, "ide");
     d.modelo = texto(ide, "mod");

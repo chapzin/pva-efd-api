@@ -140,8 +140,9 @@ Resposta: tudo o que `/analisar` devolve, mais:
 }
 ```
 
-Os achados usam o mesmo formato das `verificacoes`. `ignorados` lista arquivos do ZIP que não são NF-e, CT-e
-nem evento (ou XML quebrado). Erro no ZIP (sem `.txt`, dois `.txt`, grande demais) responde `400`.
+Os achados usam o mesmo formato das `verificacoes`. `ignorados` lista arquivos do ZIP que não são NF-e, NFC-e,
+CT-e, CF-e nem evento, ou que não deu para ler, cada um com o motivo entre parênteses (até 50). CT-e é lido nos
+leiautes 3.00 e 4.00. Erro no ZIP (sem `.txt`, dois `.txt`, grande demais) responde `400`.
 
 ## `POST /consultar?sql=SELECT ...`
 

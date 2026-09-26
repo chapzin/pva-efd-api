@@ -9,7 +9,8 @@
   efd-exemplo-sat.txt + xml-sat/  vendas no SAT em resumo diário (C860/C890): cupom tributado
     resumido como ST, cupom fora da faixa do C860, dia sem resumo e um cupom cancelado.
   efd-exemplo-frete.txt + xml-frete/  fretes (D100 × CT-e): um tomado e escriturado, um creditado sem
-    ser o tomador, um tomado e não escriturado e um cancelado (com o evento) fora da EFD.
+    ser o tomador, um tomado e não escriturado e um cancelado (com o evento) fora da EFD. O tomado
+    e escriturado é leiaute 3.00 e, como o creditado sem ser o tomador, lista a NF-e em infDoc.
 
 CNPJ, IE, CPF e chave de NF-e são inventados, mas com dígitos verificadores
 válidos (o PVA confere isso). Uso: python3 gerar_exemplos.py
@@ -174,10 +175,11 @@ def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop
             '<cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></nfeProc>\n')
 
 
-def cte(chave, toma, rem, dest, dia, v, v_icms):
+# O CT-e real lista as NF-e transportadas em infDoc/infNFe; o 3.00 não tem CRT no emitente.
+def cte(chave, toma, rem, dest, dia, v, v_icms, versao='4.00', nfe=None):
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<cteProc xmlns="http://www.portalfiscal.inf.br/cte" versao="4.00"><CTe xmlns="http://www.portalfiscal.inf.br/cte">'
-            f'<infCte Id="CTe{chave}" versao="4.00"><ide><cUF>23</cUF><cCT>{chave[35:43]}</cCT><CFOP>5353</CFOP>'
+            f'<cteProc xmlns="http://www.portalfiscal.inf.br/cte" versao="{versao}"><CTe xmlns="http://www.portalfiscal.inf.br/cte">'
+            f'<infCte Id="CTe{chave}" versao="{versao}"><ide><cUF>23</cUF><cCT>{chave[35:43]}</cCT><CFOP>5353</CFOP>'
             f'<natOp>PRESTACAO DE SERVICO DE TRANSPORTE</natOp><mod>57</mod><serie>1</serie><nCT>{int(chave[25:34])}</nCT>'
             f'<dhEmi>{dia}T10:00:00-03:00</dhEmi><tpImp>1</tpImp><tpEmis>{chave[34]}</tpEmis><cDV>{chave[43]}</cDV>'
             f'<tpAmb>2</tpAmb><tpCTe>0</tpCTe><procEmi>0</procEmi><verProc>1</verProc><cMunEnv>{FORTALEZA}</cMunEnv>'
@@ -185,11 +187,13 @@ def cte(chave, toma, rem, dest, dia, v, v_icms):
             f'<xMunIni>FORTALEZA</xMunIni><UFIni>CE</UFIni><cMunFim>{FORTALEZA}</cMunFim><xMunFim>FORTALEZA</xMunFim>'
             f'<UFFim>CE</UFFim><retira>1</retira><indIEToma>1</indIEToma><toma3><toma>{toma}</toma></toma3></ide>'
             f'<emit><CNPJ>{CNPJ_TRANSPORTADORA}</CNPJ><IE>{IE_TRANSPORTADORA}</IE><xNome>TRANSPORTADORA FICTICIA</xNome>'
-            f'<CRT>3</CRT></emit><rem><CNPJ>{rem}</CNPJ><xNome>REMETENTE FICTICIO</xNome></rem>'
+            + ('<CRT>3</CRT>' if versao == '4.00' else '') + '</emit>'
+            f'<rem><CNPJ>{rem}</CNPJ><xNome>REMETENTE FICTICIO</xNome></rem>'
             f'<dest><CNPJ>{dest}</CNPJ><xNome>DESTINATARIO FICTICIO</xNome></dest>'
             f'<vPrest><vTPrest>{v}</vTPrest><vRec>{v}</vRec></vPrest><imp><ICMS><ICMS00><CST>00</CST><vBC>{v}</vBC>'
             f'<pICMS>12.00</pICMS><vICMS>{v_icms}</vICMS></ICMS00></ICMS></imp><infCTeNorm><infCarga><vCarga>1000.00</vCarga>'
-            '</infCarga></infCTeNorm></infCte>' + ASSINATURA + '</CTe><protCTe versao="4.00"><infProt><tpAmb>2</tpAmb>'
+            '</infCarga>' + (f'<infDoc><infNFe><chave>{nfe}</chave></infNFe></infDoc>' if nfe else '')
+            + '</infCTeNorm></infCte>' + ASSINATURA + f'</CTe><protCTe versao="{versao}"><infProt><tpAmb>2</tpAmb>'
             f'<chCTe>{chave}</chCTe><dhRecbto>{dia}T10:00:05-03:00</dhRecbto><nProt>3232500001{chave[28:34]}</nProt>'
             '<digVal>ZmljdGljaW8=</digVal><cStat>100</cStat><xMotivo>Autorizado o uso do CT-e</xMotivo></infProt></protCTe>'
             '</cteProc>\n')
@@ -254,13 +258,13 @@ if __name__ == '__main__':
     (aqui / 'efd-exemplo-frete.txt').write_bytes(montar(frete=True).encode('iso-8859-1'))
     frete = aqui / 'xml-frete'
     frete.mkdir(exist_ok=True)
-    # toma 0 = remetente, 3 = destinatário
-    for chave, toma, rem, dest, dia, v, v_icms in [
-            (CTE_TOMADO, '0', CNPJ, CNPJ_CLIENTE, '2025-01-10', '100.00', '12.00'),
-            (CTE_ALHEIO, '0', CNPJ_FORNECEDOR, CNPJ, '2025-01-12', '75.00', '9.00'),
-            (CTE_ESQUECIDO, '3', CNPJ_FORNECEDOR, CNPJ, '2025-01-20', '60.00', '7.20'),
-            (CTE_CANCELADO, '0', CNPJ, CNPJ_CLIENTE, '2025-01-22', '40.00', '4.80')]:
-        (frete / f'CTe{chave}.xml').write_text(cte(chave, toma, rem, dest, dia, v, v_icms))
+    # toma 0 = remetente, 3 = destinatário; o tomado e escriturado vem no leiaute 3.00
+    for chave, toma, rem, dest, dia, v, v_icms, versao, nfe in [
+            (CTE_TOMADO, '0', CNPJ, CNPJ_CLIENTE, '2025-01-10', '100.00', '12.00', '3.00', CHAVE),
+            (CTE_ALHEIO, '0', CNPJ_FORNECEDOR, CNPJ, '2025-01-12', '75.00', '9.00', '4.00', CHAVE_COMPRA),
+            (CTE_ESQUECIDO, '3', CNPJ_FORNECEDOR, CNPJ, '2025-01-20', '60.00', '7.20', '4.00', None),
+            (CTE_CANCELADO, '0', CNPJ, CNPJ_CLIENTE, '2025-01-22', '40.00', '4.80', '4.00', None)]:
+        (frete / f'CTe{chave}.xml').write_text(cte(chave, toma, rem, dest, dia, v, v_icms, versao, nfe))
     (frete / f'CTeCanc{CTE_CANCELADO}.xml').write_text(cte_canc(CTE_CANCELADO, '2025-01-22'))
     print('gerados: efd-exemplo-valido.txt, efd-exemplo-com-erro.txt, efd-exemplo-malha.txt, xml-malha/,'
           ' efd-exemplo-sat.txt, xml-sat/, efd-exemplo-frete.txt, xml-frete/')
