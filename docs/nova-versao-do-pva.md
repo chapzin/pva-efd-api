@@ -45,3 +45,14 @@ Se o `javac` falhar no build, alguma classe interna mudou de nome ou assinatura.
 
 Atualize `PVA_VERSAO` e `PVA_SHA256` no `Dockerfile`, a `image:` no `docker-compose.yml`, e rode o teste de
 fumaça de novo. Abra um *pull request* com o resultado.
+
+## 5. Publicar a versão
+
+As tags seguem `v<versão do PVA>-<n>`: `v6.1.1-1` é a primeira versão do serviço sobre o PVA 6.1.1, e `n`
+sobe a cada mudança no serviço com o mesmo PVA. Quem consome o serviço deve fixar o build num commit ou tag,
+não no `main`:
+
+```yaml
+build:
+  context: https://github.com/chapzin/pva-efd-api.git#v6.1.1-1
+```
