@@ -6,6 +6,8 @@
   efd-exemplo-malha.txt  passa no PVA, mas credita ICMS de uso e consumo comprado
     de fornecedor do Simples: é o caso que /analisar e /cruzar apontam.
   xml-malha/  XMLs fictícios das notas desse período (uma delas não escriturada).
+  efd-exemplo-sat.txt + xml-sat/  vendas no SAT em resumo diário (C860/C890): cupom tributado
+    resumido como ST, cupom fora da faixa do C860, dia sem resumo e um cupom cancelado.
 
 CNPJ, IE, CPF e chave de NF-e são inventados, mas com dígitos verificadores
 válidos (o PVA confere isso). Uso: python3 gerar_exemplos.py
@@ -55,12 +57,19 @@ CHAVE_COMPRA = dv_chave('23' + '2501' + CNPJ_FORNECEDOR + '55' + '001' + '000000
 CHAVE_ESQUECIDA = dv_chave('23' + '2501' + CNPJ_FORNECEDOR + '55' + '001' + '000000457' + '1' + '87654322')
 
 
-def montar(icms_c190='180,00', compra=False):
+NR_SAT = '900000001'
+
+
+def chave_cfe(n):
+    return dv_chave('23' + '2501' + CNPJ + '59' + NR_SAT + f'{n:06d}' + f'{n:06d}')
+
+
+def montar(icms_c190='180,00', compra=False, sat=False):
     credito, recolher = ('36,00', '144,00') if compra else ('0,00', '180,00')
     corpo = {
         '0': [
             ['0000', '019', '0', '01012025', '31012025', 'EMPRESA FICTICIA DE EXEMPLO LTDA', CNPJ, '', 'CE', IE,
-             FORTALEZA, '', '', 'A', '1'],
+             FORTALEZA, '', '', 'B' if sat else 'A', '1'],
             ['0001', '0'],
             ['0005', 'EXEMPLO', '60000000', 'RUA DE EXEMPLO', '100', '', 'CENTRO', '8500000000', '', 'exemplo@example.com'],
             ['0100', 'CONTADOR FICTICIO', CPF_CONTADOR, 'CE000000O0', '', '60000000', 'RUA DE EXEMPLO', '200', '',
@@ -85,7 +94,11 @@ def montar(icms_c190='180,00', compra=False):
             ['C170', '1', 'MAT01', '', '1', 'UN', '200,00', '0,00', '0', '000', '1556', '', '200,00', '18,00', '36,00',
              '0,00', '0,00', '0,00', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '0,00'],
             ['C190', '000', '1556', '18,00', '200,00', '200,00', '36,00', '0,00', '0,00', '0,00', '0,00', ''],
-        ] if compra else []),
+        ] if compra else []) + ([
+            ['C860', '59', NR_SAT, '15012025', '1', '4'],
+            ['C890', '060', '5102', '0,00', '100,00', '0,00', '0,00', ''],
+            ['C890', '060', '5405', '0,00', '50,00', '0,00', '0,00', ''],
+        ] if sat else []),
         'D': [['D001', '1']],
         'E': [
             ['E001', '0'],
@@ -132,6 +145,24 @@ def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop
             '<xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></nfeProc>\n')
 
 
+def cfe(n, dia, cfop, cst, v, v_icms):
+    icms = (f'<ICMS00><Orig>0</Orig><CST>{cst}</CST><pICMS>18.00</pICMS><vICMS>{v_icms}</vICMS></ICMS00>' if cst == '00' else
+            f'<ICMS40><Orig>0</Orig><CST>{cst}</CST></ICMS40>')
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<CFe><infCFe Id="CFe{chave_cfe(n)}" versao="0.08"><ide><cUF>23</cUF><mod>59</mod><nserieSAT>{NR_SAT}</nserieSAT>'
+            f'<nCFe>{n:06d}</nCFe><dEmi>2025{dia}</dEmi><hEmi>100000</hEmi></ide><emit><CNPJ>{CNPJ}</CNPJ>'
+            '<xNome>EMPRESA FICTICIA</xNome></emit><dest/>'
+            f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><CFOP>{cfop}</CFOP><vItem>{v}</vItem></prod>'
+            f'<imposto><ICMS>{icms}</ICMS></imposto></det><total><ICMSTot><vICMS>{v_icms}</vICMS></ICMSTot><vCFe>{v}</vCFe>'
+            '</total></infCFe></CFe>\n')
+
+
+def cfe_canc(n):
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            f'<CFeCanc><infCFe Id="CFe{dv_chave(chave_cfe(n)[:31] + "999999999999")}" chCanc="CFe{chave_cfe(n)}">'
+            '<ide><cUF>23</cUF><mod>59</mod></ide></infCFe></CFeCanc>\n')
+
+
 if __name__ == '__main__':
     aqui = Path(__file__).parent
     (aqui / 'efd-exemplo-valido.txt').write_bytes(montar().encode('iso-8859-1'))
@@ -144,4 +175,13 @@ if __name__ == '__main__':
         nfe(CHAVE_COMPRA, CNPJ_FORNECEDOR, '1', CNPJ, '1', '2025-01-10', '200.00', '0.00', v_cred_sn='2.00'))
     (xml / f'{CHAVE_ESQUECIDA}.xml').write_text(
         nfe(CHAVE_ESQUECIDA, CNPJ_FORNECEDOR, '1', CNPJ, '1', '2025-01-20', '350.00', '0.00', v_cred_sn='3.50'))
-    print('gerados: efd-exemplo-valido.txt, efd-exemplo-com-erro.txt, efd-exemplo-malha.txt, xml-malha/')
+    (aqui / 'efd-exemplo-sat.txt').write_bytes(montar(sat=True).encode('iso-8859-1'))
+    sat = aqui / 'xml-sat'
+    sat.mkdir(exist_ok=True)
+    for n, dia, cfop, cst, v, v_icms in [(1, '0115', '5102', '00', '100.00', '18.00'), (2, '0115', '5405', '60', '50.00', '0.00'),
+                                         (3, '0115', '5102', '00', '10.00', '1.80'), (7, '0115', '5102', '00', '20.00', '3.60'),
+                                         (5, '0116', '5102', '00', '30.00', '5.40')]:
+        (sat / f'CFe{chave_cfe(n)}.xml').write_text(cfe(n, dia, cfop, cst, v, v_icms))
+    (sat / f'CFeCanc{chave_cfe(3)}.xml').write_text(cfe_canc(3))
+    print('gerados: efd-exemplo-valido.txt, efd-exemplo-com-erro.txt, efd-exemplo-malha.txt, xml-malha/,'
+          ' efd-exemplo-sat.txt, xml-sat/')

@@ -39,7 +39,7 @@ Além do veredito do PVA, o serviço faz as conferências que **a malha da SEFAZ
 |---|---|
 | `POST /validar` | Veredito e erros do PVA, com o texto oficial de cada mensagem e aviso de leiaute errado para o período. |
 | `POST /analisar` | Tudo acima + resumo da apuração + verificações de malha (crédito de uso e consumo, CST sem direito a crédito, inventário de fevereiro...). |
-| `POST /cruzar` | Recebe um ZIP com a EFD e os XMLs e aponta nota não escriturada, cancelada escriturada, crédito acima do destacado, crédito do Simples acima do permitido, CT-e sem ser tomador... |
+| `POST /cruzar` | Recebe um ZIP com a EFD e os XMLs e aponta nota ou cupom SAT não escriturado, cancelada escriturada, crédito acima do destacado, crédito do Simples acima do permitido, CT-e sem ser tomador... |
 | `POST /consultar` | Roda um `SELECT` no banco que o PVA montou com o arquivo (relatórios próprios sem escrever leitor de EFD). |
 | `GET /tabelas/{nome}` | Tabelas oficiais que o PVA baixa da Receita (CFOP, códigos de ajuste por UF, leiautes) filtradas por UF, código e data. |
 | `GET /mensagens/{codigo}` | O catálogo de mensagens do validador. |

@@ -32,7 +32,8 @@ final class Cruzamento {
     // Id do infNFe/infCte quando difere da chave autorizada no protocolo (nota regerada pelo ERP).
     String idAssinado;
     boolean cancelada;
-    String arquivo, ufDestino;
+    String arquivo, ufDestino, serieSat;
+    int numero;
     // ICMS e CST/CSOSN dos itens por CFOP: é nessa granularidade que o C190 se compara com a nota.
     final Map<String, BigDecimal> icmsCfop = new TreeMap<>();
     final Map<String, Set<String>> cstCfop = new TreeMap<>();
@@ -71,7 +72,13 @@ final class Cruzamento {
       Element infNFe = primeiro(raiz, "infNFe");
       Element infCte = primeiro(raiz, "infCte");
       Element evento = primeiro(raiz, "infEvento");
-      if (infNFe != null) {
+      if (raiz.getTagName().equals("CFeCanc")) {
+        String ch = chaveDe(primeiro(raiz, "infCFe").getAttribute("chCanc"));
+        if (ch != null && ch.length() == 44) lote.cancelamentos.add(ch);
+      } else if (raiz.getTagName().equals("CFe")) {
+        Doc x = cfe(primeiro(raiz, "infCFe"), nome);
+        lote.docs.put(x.chave, x);
+      } else if (infNFe != null) {
         Doc x = nfe(infNFe, raiz, nome);
         lote.docs.put(x.chave, x);
       } else if (infCte != null) {
@@ -106,17 +113,7 @@ final class Cruzamento {
     d.crt = texto(emit, "CRT");
     d.destinatario = doc(primeiro(inf, "dest"));
     d.ufDestino = texto(primeiro(inf, "enderDest"), "UF");
-    NodeList dets = inf.getElementsByTagName("det");
-    for (int i = 0; i < dets.getLength(); i++) {
-      Element det = (Element) dets.item(i);
-      String cfop = texto(primeiro(det, "prod"), "CFOP");
-      Element icms = primeiro(primeiro(det, "imposto"), "ICMS");
-      Element grupo = icms == null ? null : primeiroFilho(icms);
-      String cst = grupo == null ? null : texto(grupo, "CST") != null ? texto(grupo, "CST") : texto(grupo, "CSOSN");
-      cfop = cfop == null ? "?" : cfop;
-      d.icmsCfop.merge(cfop, num(grupo == null ? null : texto(grupo, "vICMS")), BigDecimal::add);
-      if (cst != null) d.cstCfop.computeIfAbsent(cfop, k -> new TreeSet<>()).add(cst);
-    }
+    itens(d, inf);
     Element tot = primeiro(inf, "ICMSTot");
     d.valor = num(texto(tot, "vNF"));
     d.icms = num(texto(tot, "vICMS"));
@@ -135,6 +132,47 @@ final class Cruzamento {
       d.idAssinado = d.chave;
       d.chave = ch;
     }
+  }
+
+  // CST como na EFD: origem + CST (3 dígitos); CSOSN já tem 3.
+  private static void itens(Doc d, Element inf) {
+    NodeList dets = inf.getElementsByTagName("det");
+    for (int i = 0; i < dets.getLength(); i++) {
+      Element det = (Element) dets.item(i);
+      String cfop = texto(primeiro(det, "prod"), "CFOP");
+      Element icms = primeiro(primeiro(det, "imposto"), "ICMS");
+      Element grupo = icms == null ? null : primeiroFilho(icms);
+      String cst = null;
+      if (grupo != null && texto(grupo, "CST") != null) {
+        String orig = texto(grupo, "orig") != null ? texto(grupo, "orig") : texto(grupo, "Orig");
+        cst = (orig == null ? "" : orig) + texto(grupo, "CST");
+      } else if (grupo != null) {
+        cst = texto(grupo, "CSOSN");
+      }
+      cfop = cfop == null ? "?" : cfop;
+      d.icmsCfop.merge(cfop, num(grupo == null ? null : texto(grupo, "vICMS")), BigDecimal::add);
+      if (cst != null) d.cstCfop.computeIfAbsent(cfop, k -> new TreeSet<>()).add(cst);
+    }
+  }
+
+  private static Doc cfe(Element inf, String nome) {
+    Doc d = new Doc();
+    d.arquivo = nome;
+    d.chave = chaveDe(inf.getAttribute("Id"));
+    d.tipo = "CF-e";
+    d.modelo = "59";
+    d.tpNF = "1";
+    Element ide = primeiro(inf, "ide");
+    d.serieSat = Verificacoes.digitos(texto(ide, "nserieSAT"), 9);
+    d.numero = Verificacoes.inteiro(texto(ide, "nCFe"));
+    d.emissao = dia(texto(ide, "dEmi"));
+    d.emitente = doc(primeiro(inf, "emit"));
+    d.destinatario = doc(primeiro(inf, "dest"));
+    Element total = primeiro(inf, "total");
+    d.valor = num(texto(total, "vCFe"));
+    d.icms = num(texto(primeiro(total, "ICMSTot"), "vICMS"));
+    itens(d, inf);
+    return d;
   }
 
   private static Doc cte(Element inf, Element raiz, String nome) {
@@ -186,26 +224,31 @@ final class Cruzamento {
     Map<String, Map<String, BigDecimal>> c190Icms = new HashMap<>();
     Map<String, Map<String, Set<String>>> c190Cst = new HashMap<>();
     for (Map<String, String> r : Verificacoes.linhas(per, "SELECT c.LINHA, a.CFOP, a.CST_ICMS, a.VL_ICMS FROM reg_c190 a"
-        + " JOIN reg_c100 c ON a.ID_PAI = c.ID WHERE c.IND_OPER = 1 AND c.IND_EMIT = 0")) {
+        + " JOIN reg_c100 c ON a.ID_PAI = c.ID WHERE c.IND_OPER = 1 AND c.IND_EMIT = 0 UNION ALL SELECT c.LINHA, a.CFOP,"
+        + " a.CST_ICMS, a.VL_ICMS FROM reg_c850 a JOIN reg_c800 c ON a.ID_PAI = c.ID")) {
       c190Icms.computeIfAbsent(r.get("LINHA"), k -> new TreeMap<>()).merge(r.get("CFOP"), Verificacoes.dec(r.get("VL_ICMS")), BigDecimal::add);
       c190Cst.computeIfAbsent(r.get("LINHA"), k -> new TreeMap<>()).computeIfAbsent(r.get("CFOP"), k -> new TreeSet<>()).add(r.get("CST_ICMS"));
     }
 
     Set<String> escrituradas = new HashSet<>();
-    List<Map<String, String>> c100 = Verificacoes.linhas(per,
-        "SELECT LINHA, IND_OPER, IND_EMIT, COD_MOD, COD_SIT, NUM_DOC, CHV_NFE, VL_DOC, VL_ICMS FROM reg_c100");
-    List<Map<String, String>> d100 = Verificacoes.linhas(per,
-        "SELECT LINHA, IND_OPER, IND_EMIT, COD_MOD, COD_SIT, NUM_DOC, CHV_CTE, VL_DOC, VL_ICMS FROM reg_d100");
+    List<Map<String, String>> docsEfd = new ArrayList<>(Verificacoes.linhas(per,
+        "SELECT 'C100' REG, LINHA, IND_OPER, IND_EMIT, COD_MOD, COD_SIT, NUM_DOC, CHV_NFE CHV, VL_DOC, VL_ICMS FROM reg_c100"));
+    docsEfd.addAll(Verificacoes.linhas(per,
+        "SELECT 'C800' REG, LINHA, '1' IND_OPER, '0' IND_EMIT, COD_MOD, COD_SIT, NUM_CFE NUM_DOC, CHV_CFE CHV, VL_CFE VL_DOC,"
+            + " VL_ICMS FROM reg_c800"));
+    docsEfd.addAll(Verificacoes.linhas(per,
+        "SELECT 'D100' REG, LINHA, IND_OPER, IND_EMIT, COD_MOD, COD_SIT, NUM_DOC, CHV_CTE CHV, VL_DOC, VL_ICMS FROM reg_d100"));
     int casados = 0;
-    for (boolean ehCte : new boolean[] {false, true}) {
-      for (Map<String, String> r : ehCte ? d100 : c100) {
-        String ch = Verificacoes.digitos(r.get(ehCte ? "CHV_CTE" : "CHV_NFE"), 44);
+    {
+      for (Map<String, String> r : docsEfd) {
+        String reg = r.get("REG");
+        boolean ehCte = reg.equals("D100");
+        String ch = Verificacoes.digitos(r.get("CHV"), 44);
         if (ch.isEmpty()) continue;
         escrituradas.add(ch);
         int sit = Verificacoes.inteiro(r.get("COD_SIT"));
         int oper = Verificacoes.inteiro(r.get("IND_OPER")), emissao = Verificacoes.inteiro(r.get("IND_EMIT"));
         BigDecimal vDoc = Verificacoes.dec(r.get("VL_DOC")), vIcms = Verificacoes.dec(r.get("VL_ICMS"));
-        String reg = ehCte ? "D100" : "C100";
         Doc x = lote.docs.get(ch);
         Map<String, Object> base = Json.obj("registro", reg, "linha", Verificacoes.inteiro(r.get("LINHA")), "documento", r.get("NUM_DOC"),
             "chave", ch);
@@ -261,8 +304,13 @@ final class Cruzamento {
       }
     }
 
+    List<Map<String, Object>> satFora = new ArrayList<>(), satSemResumo = new ArrayList<>(), satDebMenor = new ArrayList<>();
+    List<Map<String, Object>> satProvCanc = new ArrayList<>();
+    Set<String> cobertosPorResumo = sat(per, lote, eu, ini, fim, escrituradas, c190Icms, satFora, satSemResumo, satDebMenor, satProvCanc);
+
     for (Doc x : lote.docs.values()) {
-      if (escrituradas.contains(x.chave) || x.cancelada || !x.autorizada() || x.emissao == null) continue;
+      if (escrituradas.contains(x.chave) || cobertosPorResumo.contains(x.chave) || x.cancelada || !x.autorizada()
+          || x.emissao == null) continue;
       if (x.emissao.isBefore(ini) || x.emissao.isAfter(fim)) continue;
       boolean minha = eu != null && (eu.equals(x.emitente) || eu.equals(x.destinatario) || eu.equals(x.tomador));
       if (!minha) continue;
@@ -309,6 +357,23 @@ final class Cruzamento {
             + " os itens do XML com o C190: CST 00 na nota e 060 na EFD (CFOP 6403/6404) indica C190 montado pelo cadastro do"
             + " ERP, não pela nota emitida.",
         "LC 87/1996, art. 13");
+    add(out, satFora, "CFE_FORA_DO_RESUMO_SAT", "alerta", "CF-e emitido fora do intervalo do resumo diário (C860)",
+        "O equipamento SAT emitiu o cupom no dia, mas o número não está entre DOC_INI e DOC_FIM do C860 daquele SAT e data:"
+            + " a venda não entrou na apuração.",
+        "Guia Prático EFD ICMS/IPI (C860: DOC_INI/DOC_FIM)");
+    add(out, satSemResumo, "CFE_SEM_RESUMO_SAT", "alerta", "Dia de venda no SAT sem C860 nem C800",
+        "Há CF-e autorizados do equipamento na data, e a EFD não traz resumo diário (C860) nem os cupons (C800) desse SAT e dia.",
+        "Guia Prático EFD ICMS/IPI (C800/C860)");
+    add(out, satDebMenor, "DEBITO_SAT_MENOR_QUE_XML", "atencao", "ICMS do resumo diário do SAT menor que o dos cupons",
+        "Soma do ICMS dos CF-e do SAT no dia, por CFOP, maior que o C890. porCfop mostra o CST de cada lado; CST de ST na EFD"
+            + " e tributado no cupom é cadastro do ERP divergente do que o SAT emitiu. Cupom cancelado sem o XML de"
+            + " cancelamento na pasta também aparece aqui: confira cuponsCancelados.",
+        "LC 87/1996, art. 13; Guia Prático EFD ICMS/IPI (C890)");
+    add(out, satProvCanc, "CFE_PROVAVEL_CANCELADO_SEM_XML", "info", "Cupom SAT provavelmente cancelado, sem o XML de cancelamento",
+        "O valor dos cupons do dia excede o VL_OPR do C890 exatamente pelo valor deste(s) cupom(ns): o ERP o tratou como"
+            + " cancelado. Ele sai da comparação de ICMS. Colete o CFeCanc para confirmar; se não existir, a venda está fora da"
+            + " apuração.",
+        "Guia Prático EFD ICMS/IPI (C860/C890)");
     add(out, valor, "VALOR_DIVERGENTE_DO_XML", "atencao", "Valor do documento diferente do XML",
         "VL_DOC escriturado difere do vNF/vTPrest do XML.", "Guia Prático EFD ICMS/IPI (C100/D100, campo VL_DOC)");
     add(out, invertida, "OPERACAO_INVERTIDA", "alerta", "Nota própria com entrada/saída trocada",
@@ -331,6 +396,111 @@ final class Cruzamento {
     add(out, semXml, "ESCRITURADO_SEM_XML", "info", "Documento escriturado sem XML na pasta enviada",
         "Normal se a pasta não tiver todos os XMLs; útil para descobrir o que falta coletar.", "—");
     return out;
+  }
+
+  // Resumo diário do SAT (C860/C890): o cupom não tem chave na EFD, casa por equipamento, data e faixa de numeração.
+  private static Set<String> sat(IPersistencia per, Lote lote, String eu, LocalDate ini, LocalDate fim, Set<String> escrituradas,
+      Map<String, Map<String, BigDecimal>> c190Icms, List<Map<String, Object>> fora, List<Map<String, Object>> semResumo,
+      List<Map<String, Object>> debMenor, List<Map<String, Object>> provCanc) throws Exception {
+    Set<String> cobertos = new HashSet<>();
+    Map<String, List<Doc>> porDia = new TreeMap<>();
+    Map<String, Integer> cancelados = new HashMap<>();
+    for (Doc x : lote.docs.values()) {
+      if (!"CF-e".equals(x.tipo) || x.emissao == null || eu == null || !eu.equals(x.emitente) || escrituradas.contains(x.chave)) continue;
+      if (x.emissao.isBefore(ini) || x.emissao.isAfter(fim)) continue;
+      String k = x.serieSat + "|" + x.emissao;
+      if (x.cancelada) {
+        cancelados.merge(k, 1, Integer::sum);
+        cobertos.add(x.chave);
+      } else {
+        porDia.computeIfAbsent(k, z -> new ArrayList<>()).add(x);
+      }
+    }
+    if (porDia.isEmpty()) return cobertos;
+    Map<String, List<Map<String, String>>> resumos = new HashMap<>();
+    for (Map<String, String> r : Verificacoes.linhas(per, "SELECT ID, LINHA, NR_SAT, DT_DOC, DOC_INI, DOC_FIM FROM reg_c860")) {
+      LocalDate d = Verificacoes.data(r.get("DT_DOC"));
+      resumos.computeIfAbsent(Verificacoes.digitos(r.get("NR_SAT"), 9) + "|" + d, z -> new ArrayList<>()).add(r);
+    }
+    Map<String, BigDecimal> c890Opr = new HashMap<>();
+    Map<String, Map<String, BigDecimal>> c890 = new HashMap<>();
+    Map<String, Map<String, Set<String>>> c890Cst = new HashMap<>();
+    for (Map<String, String> r : Verificacoes.linhas(per, "SELECT ID_PAI, CFOP, CST_ICMS, VL_OPR, VL_ICMS FROM reg_c890")) {
+      c890Opr.merge(r.get("ID_PAI"), Verificacoes.dec(r.get("VL_OPR")), BigDecimal::add);
+      c890.computeIfAbsent(r.get("ID_PAI"), z -> new TreeMap<>()).merge(r.get("CFOP"), Verificacoes.dec(r.get("VL_ICMS")), BigDecimal::add);
+      c890Cst.computeIfAbsent(r.get("ID_PAI"), z -> new TreeMap<>()).computeIfAbsent(r.get("CFOP"), z -> new TreeSet<>()).add(r.get("CST_ICMS"));
+    }
+    for (Map.Entry<String, List<Doc>> e : porDia.entrySet()) {
+      String[] k = e.getKey().split("\\|");
+      List<Map<String, String>> rs = resumos.getOrDefault(e.getKey(), List.of());
+      if (rs.isEmpty()) {
+        BigDecimal v = BigDecimal.ZERO;
+        for (Doc x : e.getValue()) v = v.add(x.valor);
+        semResumo.add(Json.obj("nrSat", k[0], "data", k[1], "cupons", e.getValue().size(), "valor", v));
+        for (Doc x : e.getValue()) cobertos.add(x.chave);
+        continue;
+      }
+      Doc soma = new Doc();
+      Map<String, BigDecimal> efd = new TreeMap<>();
+      Map<String, Set<String>> cstEfd = new TreeMap<>();
+      BigDecimal oprEfd = BigDecimal.ZERO;
+      for (Map<String, String> r : rs) {
+        oprEfd = oprEfd.add(c890Opr.getOrDefault(r.get("ID"), BigDecimal.ZERO));
+        c890.getOrDefault(r.get("ID"), Map.of()).forEach((cf, v) -> efd.merge(cf, v, BigDecimal::add));
+        c890Cst.getOrDefault(r.get("ID"), Map.of()).forEach((cf, c) -> cstEfd.computeIfAbsent(cf, z -> new TreeSet<>()).addAll(c));
+      }
+      List<Doc> resumidos = new ArrayList<>();
+      for (Doc x : e.getValue()) {
+        cobertos.add(x.chave);
+        boolean dentro = false;
+        for (Map<String, String> r : rs) {
+          dentro |= x.numero >= Verificacoes.inteiro(r.get("DOC_INI")) && x.numero <= Verificacoes.inteiro(r.get("DOC_FIM"));
+        }
+        if (!dentro) {
+          fora.add(Json.obj("registro", "C860", "linha", Verificacoes.inteiro(rs.get(0).get("LINHA")), "documento", String.valueOf(x.numero),
+              "chave", x.chave, "nrSat", k[0], "data", k[1], "faixa", rs.get(0).get("DOC_INI") + "-" + rs.get(0).get("DOC_FIM"),
+              "valor", x.valor, "arquivoXml", x.arquivo));
+          continue;
+        }
+        resumidos.add(x);
+      }
+      BigDecimal oprXml = BigDecimal.ZERO;
+      for (Doc x : resumidos) oprXml = oprXml.add(x.valor);
+      List<Doc> canc = provaveisCancelados(resumidos, oprXml.subtract(oprEfd));
+      for (Doc x : canc) {
+        provCanc.add(Json.obj("registro", "C860", "linha", Verificacoes.inteiro(rs.get(0).get("LINHA")), "documento", String.valueOf(x.numero),
+            "chave", x.chave, "nrSat", k[0], "data", k[1], "valor", x.valor, "icms", x.icms, "arquivoXml", x.arquivo));
+      }
+      for (Doc x : resumidos) {
+        if (canc.contains(x)) continue;
+        x.icmsCfop.forEach((cf, v) -> soma.icmsCfop.merge(cf, v, BigDecimal::add));
+        x.cstCfop.forEach((cf, c) -> soma.cstCfop.computeIfAbsent(cf, z -> new TreeSet<>()).addAll(c));
+      }
+      BigDecimal xml = soma.icmsCfop.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+      BigDecimal deb = efd.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+      if (xml.subtract(deb).compareTo(TOLERANCIA) > 0) {
+        debMenor.add(Json.obj("registro", "C860", "linha", Verificacoes.inteiro(rs.get(0).get("LINHA")), "nrSat", k[0], "data", k[1],
+            "cupons", e.getValue().size(), "cuponsCancelados", cancelados.getOrDefault(e.getKey(), 0), "provaveisCancelados", canc.size(),
+            "valorCupons", oprXml, "valorC890", oprEfd, "debitado", deb,
+            "destacado", xml, "valor", xml.subtract(deb), "porCfop", porCfop(soma, efd, cstEfd)));
+      }
+    }
+    return cobertos;
+  }
+
+  // Cupom cancelado cujo CFeCanc não veio: o C890 fica menor exatamente pelo valor de 1 ou 2 cupons do dia.
+  static List<Doc> provaveisCancelados(List<Doc> cupons, BigDecimal excesso) {
+    BigDecimal tol = new BigDecimal("0.05");
+    if (excesso.compareTo(tol) <= 0) return List.of();
+    for (Doc a : cupons) if (a.valor.subtract(excesso).abs().compareTo(tol) <= 0) return List.of(a);
+    for (int i = 0; i < cupons.size(); i++) {
+      for (int j = i + 1; j < cupons.size(); j++) {
+        if (cupons.get(i).valor.add(cupons.get(j).valor).subtract(excesso).abs().compareTo(tol) <= 0) {
+          return List.of(cupons.get(i), cupons.get(j));
+        }
+      }
+    }
+    return List.of();
   }
 
   // Diferença por CFOP entre os itens do XML e o C190. Padrão típico: CFOP 6403/6404 com CST 00 na nota e 060 na EFD
@@ -397,6 +567,7 @@ final class Cruzamento {
   }
 
   private static LocalDate dia(String s) {
+    if (s != null && s.matches("\\d{8}")) return LocalDate.parse(s, java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
     return s == null || s.length() < 10 ? null : LocalDate.parse(s.substring(0, 10));
   }
 }

@@ -119,8 +119,8 @@ ocorrências; `quantidade` e `valorTotal` contam todas. A lista das verificaçõ
 ## `POST /cruzar`
 
 Cruza a EFD com os XMLs das notas. **Corpo:** um arquivo `.zip` com **um** `.txt` (a EFD) e quantos `.xml`
-quiser: NF-e/NFC-e (`nfeProc` ou `NFe`), CT-e (`cteProc` ou `CTe`) e eventos de cancelamento (`procEventoNFe`,
-tipo 110111). Subpastas dentro do ZIP são aceitas. O limite total descompactado é 4× `PVA_LIMITE_MB`.
+quiser: NF-e/NFC-e (`nfeProc` ou `NFe`), CT-e (`cteProc` ou `CTe`), CF-e SAT (`CFe`, cancelamento `CFeCanc`) e eventos
+de cancelamento (`procEventoNFe`, tipo 110111). Subpastas dentro do ZIP são aceitas. O limite total descompactado é 4× `PVA_LIMITE_MB`.
 
 ```bash
 zip -j lote.zip efd.txt xmls/*.xml

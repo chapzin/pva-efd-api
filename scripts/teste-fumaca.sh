@@ -65,9 +65,30 @@ sed -e "s#|$PROPRIA|15012025|15012025|1000,00|0|0,00|0,00|1000,00|9|0,00|0,00|0,
 (cd "$DIR" && zip -qj malha.zip efd.txt ./*.xml)
 r=$(enviar cruzar "$DIR/malha.zip")
 rm -rf "$DIR"
-echo "$r" | grep -q DEBITO_MENOR_QUE_DESTACADO && echo "$r" | grep -q '"cstXml":"00","cstEfd":"060"' \
+echo "$r" | grep -q DEBITO_MENOR_QUE_DESTACADO && echo "$r" | grep -q '"cstXml":"000","cstEfd":"060"' \
   || { echo "FALHOU (cruzar, débito menor por CFOP): $r"; exit 1; }
 echo "ok: /cruzar aponta débito menor que o destacado e compara CFOP a CFOP com o C190"
+
+# SAT em resumo diário: cupom tributado resumido como ST, cupom fora da faixa do C860, dia sem C860, cancelado ignorado.
+ZIP="$(mktemp -d)/sat.zip"
+(cd "$AQUI/exemplos" && zip -qj "$ZIP" efd-exemplo-sat.txt xml-sat/*.xml)
+r=$(enviar cruzar "$ZIP")
+rm -rf "$(dirname "$ZIP")"
+for c in CFE_FORA_DO_RESUMO_SAT CFE_SEM_RESUMO_SAT DEBITO_SAT_MENOR_QUE_XML '"cuponsCancelados":1' '"cstXml":"000","cstEfd":"060"'; do
+  echo "$r" | grep -q "$c" || { echo "FALHOU (cruzar SAT, $c): $r"; exit 1; }
+done
+echo "$r" | grep -q 'XML_NAO_ESCRITURADO' && { echo "FALHOU (cruzar SAT, cupom virou nota não escriturada): $r"; exit 1; }
+echo "ok: /cruzar confere CF-e contra o resumo diário do SAT (C860/C890)"
+
+# Sem o CFeCanc: o cupom que o C890 deixou de fora pelo valor exato vira provável cancelado, não débito menor.
+DIR="$(mktemp -d)"
+cp "$AQUI"/exemplos/efd-exemplo-sat.txt "$AQUI"/exemplos/xml-sat/CFe2*.xml "$DIR"/
+(cd "$DIR" && zip -qj sat.zip ./*.txt ./*.xml)
+r=$(enviar cruzar "$DIR/sat.zip")
+rm -rf "$DIR"
+echo "$r" | grep -q CFE_PROVAVEL_CANCELADO_SEM_XML && echo "$r" | grep -q '"provaveisCancelados":1' \
+  && echo "$r" | grep -q '"destacado":18' || { echo "FALHOU (cruzar SAT, cancelado sem XML): $r"; exit 1; }
+echo "ok: /cruzar reconhece cupom provavelmente cancelado sem o XML de cancelamento"
 
 curl -sf "$URL/mensagens/MSG_VL_ICMS_ANALIT" | grep -q 'VL_ICMS' || { echo "FALHOU (mensagens)"; exit 1; }
 curl -sf "$URL/tabelas/CFOP?codigo=1556" | grep -q 'uso ou consumo' || { echo "FALHOU (tabelas)"; exit 1; }

@@ -38,8 +38,10 @@ serve para montar o painel da carteira sem abrir o arquivo.
 
 ## `/cruzar`: EFD × XML
 
-Recebe um ZIP com a EFD e os XMLs de NF-e, NFC-e, CT-e e eventos de cancelamento do período. Casa cada
-documento pela **chave de acesso autorizada** (a do protocolo do XML) com C100.CHV_NFE e D100.CHV_CTE e compara com o que o XML diz.
+Recebe um ZIP com a EFD e os XMLs de NF-e, NFC-e, CT-e, CF-e SAT e eventos de cancelamento do período. Casa cada
+documento pela **chave de acesso autorizada** (a do protocolo do XML) com C100.CHV_NFE, C800.CHV_CFE e D100.CHV_CTE e compara
+com o que o XML diz. CF-e em resumo diário (C860/C890, perfil B) não tem chave na EFD: casa por equipamento SAT, data e faixa
+de numeração (DOC_INI a DOC_FIM).
 
 | Código | Nível | O que procura | Por que importa |
 |---|---|---|---|
@@ -49,6 +51,10 @@ documento pela **chave de acesso autorizada** (a do protocolo do XML) com C100.C
 | `CREDITO_MAIOR_QUE_DESTACADO` | alerta | Entrada com ICMS escriturado maior que o destacado no XML | O crédito é limitado ao imposto destacado (LC 87/1996, art. 23). |
 | `CREDITO_SIMPLES_ACIMA_PERMITIDO` | alerta | Fornecedor do Simples (CRT 1) com crédito acima do `vCredICMSSN`, ou MEI (CRT 4) com qualquer crédito | Só o crédito informado na nota pode ser aproveitado (LC 123/2006, art. 23). |
 | `DEBITO_MENOR_QUE_DESTACADO` | atencao | Saída própria com ICMS escriturado menor que o destacado | O fisco cobra a diferença pelo valor do XML. Cada ocorrência traz `ufDestino` e `porCfop` (CFOP, CST no XML × CST no C190, ICMS de cada lado): CST 00 na nota e 060 na EFD em 6403/6404 indica C190 montado pelo cadastro do ERP. |
+| `CFE_FORA_DO_RESUMO_SAT` | alerta | CF-e do dia cujo número não está na faixa DOC_INI–DOC_FIM do C860 daquele SAT | Venda emitida e fora da apuração. |
+| `CFE_SEM_RESUMO_SAT` | alerta | Dia com CF-e autorizados do equipamento e sem C860 nem C800 | O dia de vendas inteiro ficou fora da EFD. |
+| `DEBITO_SAT_MENOR_QUE_XML` | atencao | ICMS dos cupons do SAT no dia, por CFOP, maior que o do C890 | Mesmo padrão do débito menor da NF-e: CST de ST ou isento no resumo e cupom tributado. Cupom cancelado sem o XML de cancelamento (`CFeCanc`) no ZIP também soma aqui: veja `cuponsCancelados`. |
+| `CFE_PROVAVEL_CANCELADO_SEM_XML` | info | Cupom da faixa do C860 cujo valor (sozinho ou somado a outro) é exatamente o que falta no VL_OPR do C890 | O ERP tratou como cancelado, mas o `CFeCanc` não veio. Sai da comparação de ICMS; colete o cancelamento para confirmar. |
 | `VALOR_DIVERGENTE_DO_XML` | atencao | VL_DOC diferente de vNF / vTPrest | Digitação ou importação errada. |
 | `OPERACAO_INVERTIDA` | alerta | Nota própria com IND_OPER diferente do tpNF do XML | Entrada lançada como saída (ou o contrário) inverte débito e crédito. |
 | `CHAVE_DE_TERCEIRO` | alerta | NF-e escriturada em que o CNPJ da empresa não é emitente nem destinatário | Crédito de nota de outra empresa é glosado. |
