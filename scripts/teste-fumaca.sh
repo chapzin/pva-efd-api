@@ -90,6 +90,17 @@ echo "$r" | grep -q CFE_PROVAVEL_CANCELADO_SEM_XML && echo "$r" | grep -q '"prov
   && echo "$r" | grep -q '"destacado":18' || { echo "FALHOU (cruzar SAT, cancelado sem XML): $r"; exit 1; }
 echo "ok: /cruzar reconhece cupom provavelmente cancelado sem o XML de cancelamento"
 
+# Fretes: CT-e creditado sem ser o tomador, CT-e tomado fora do D100 e cancelado (com o evento) ignorado.
+ZIP="$(mktemp -d)/frete.zip"
+(cd "$AQUI/exemplos" && zip -qj "$ZIP" efd-exemplo-frete.txt xml-frete/*.xml xml-malha/23250111222333000181550010000001231123456781.xml)
+r=$(enviar cruzar "$ZIP")
+rm -rf "$(dirname "$ZIP")"
+for c in CTE_SEM_SER_TOMADOR '"papel":"tomador"' '"eventosCancelamento":1' '"casadosComEscrituracao":3'; do
+  echo "$r" | grep -q "$c" || { echo "FALHOU (cruzar frete, $c): $r"; exit 1; }
+done
+echo "$r" | grep -q 23250155666777000181570010000008041000008047 && { echo "FALHOU (cruzar frete, CT-e cancelado apontado): $r"; exit 1; }
+echo "ok: /cruzar confere D100 contra o CT-e pelo tomador"
+
 curl -sf "$URL/mensagens/MSG_VL_ICMS_ANALIT" | grep -q 'VL_ICMS' || { echo "FALHOU (mensagens)"; exit 1; }
 curl -sf "$URL/tabelas/CFOP?codigo=1556" | grep -q 'uso ou consumo' || { echo "FALHOU (tabelas)"; exit 1; }
 echo "ok: /mensagens e /tabelas"

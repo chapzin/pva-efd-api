@@ -8,6 +8,8 @@
   xml-malha/  XMLs fictícios das notas desse período (uma delas não escriturada).
   efd-exemplo-sat.txt + xml-sat/  vendas no SAT em resumo diário (C860/C890): cupom tributado
     resumido como ST, cupom fora da faixa do C860, dia sem resumo e um cupom cancelado.
+  efd-exemplo-frete.txt + xml-frete/  fretes (D100 × CT-e): um tomado e escriturado, um creditado sem
+    ser o tomador, um tomado e não escriturado e um cancelado (com o evento) fora da EFD.
 
 CNPJ, IE, CPF e chave de NF-e são inventados, mas com dígitos verificadores
 válidos (o PVA confere isso). Uso: python3 gerar_exemplos.py
@@ -54,6 +56,15 @@ FORTALEZA = '2304400'
 CHAVE = dv_chave('23' + '2501' + CNPJ + '55' + '001' + '000000123' + '1' + '12345678')
 CNPJ_FORNECEDOR = dv_cnpj('778889990001')  # fornecedor fictício do Simples Nacional
 CHAVE_COMPRA = dv_chave('23' + '2501' + CNPJ_FORNECEDOR + '55' + '001' + '000000456' + '1' + '87654321')
+CNPJ_TRANSPORTADORA = dv_cnpj('556667770001')  # transportadora fictícia
+IE_TRANSPORTADORA = dv_ie_ce('06000003')
+
+
+def chave_cte(n):
+    return dv_chave('23' + '2501' + CNPJ_TRANSPORTADORA + '57' + '001' + f'{n:09d}' + '1' + f'{n:08d}')
+
+
+CTE_TOMADO, CTE_ALHEIO, CTE_ESQUECIDO, CTE_CANCELADO = (chave_cte(n) for n in (801, 802, 803, 804))
 CHAVE_ESQUECIDA = dv_chave('23' + '2501' + CNPJ_FORNECEDOR + '55' + '001' + '000000457' + '1' + '87654322')
 
 
@@ -70,8 +81,10 @@ def chave_cfe(n):
     return dv_chave('23' + '2501' + CNPJ + '59' + NR_SAT + f'{n:06d}' + f'{n:06d}')
 
 
-def montar(icms_c190='180,00', compra=False, sat=False):
+def montar(icms_c190='180,00', compra=False, sat=False, frete=False):
     credito, recolher = ('36,00', '144,00') if compra else ('0,00', '180,00')
+    if frete:
+        credito, recolher = '21,00', '159,00'
     corpo = {
         '0': [
             ['0000', '019', '0', '01012025', '31012025', 'EMPRESA FICTICIA DE EXEMPLO LTDA', CNPJ, '', 'CE', IE,
@@ -86,7 +99,9 @@ def montar(icms_c190='180,00', compra=False, sat=False):
                'RUA DO FORNECEDOR', '50', '', 'CENTRO'],
               ['0190', 'UN', 'UNIDADE'],
               ['0200', 'MAT01', 'MATERIAL DE ESCRITORIO', '', '', 'UN', '07', '48201000', '', '48', '', '', '']]
-           if compra else []),
+           if compra else []) + ([['0150', 'T1', 'TRANSPORTADORA FICTICIA LTDA', '01058', CNPJ_TRANSPORTADORA, '',
+                                   IE_TRANSPORTADORA, FORTALEZA, '', 'RUA DA TRANSPORTADORA', '70', '', 'CENTRO']]
+                                 if frete else []),
         'B': [['B001', '1']],
         'C': [
             ['C001', '0'],
@@ -105,7 +120,14 @@ def montar(icms_c190='180,00', compra=False, sat=False):
             ['C890', '060', '5102', '0,00', '100,00', '0,00', '0,00', ''],
             ['C890', '060', '5405', '0,00', '50,00', '0,00', '0,00', ''],
         ] if sat else []),
-        'D': [['D001', '1']],
+        'D': [['D001', '0'],
+              ['D100', '0', '1', 'T1', '57', '00', '1', '', '801', CTE_TOMADO, '10012025', '10012025', '0', '', '100,00',
+               '0,00', '0', '100,00', '100,00', '12,00', '0,00', '', '', FORTALEZA, FORTALEZA],
+              ['D190', '000', '1353', '12,00', '100,00', '100,00', '12,00', '0,00', ''],
+              ['D100', '0', '1', 'T1', '57', '00', '1', '', '802', CTE_ALHEIO, '12012025', '12012025', '0', '', '75,00',
+               '0,00', '1', '75,00', '75,00', '9,00', '0,00', '', '', FORTALEZA, FORTALEZA],
+              ['D190', '000', '1353', '12,00', '75,00', '75,00', '9,00', '0,00', '']]
+        if frete else [['D001', '1']],
         'E': [
             ['E001', '0'],
             ['E100', '01012025', '31012025'],
@@ -152,6 +174,42 @@ def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop
             '<cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></nfeProc>\n')
 
 
+def cte(chave, toma, rem, dest, dia, v, v_icms):
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<cteProc xmlns="http://www.portalfiscal.inf.br/cte" versao="4.00"><CTe xmlns="http://www.portalfiscal.inf.br/cte">'
+            f'<infCte Id="CTe{chave}" versao="4.00"><ide><cUF>23</cUF><cCT>{chave[35:43]}</cCT><CFOP>5353</CFOP>'
+            f'<natOp>PRESTACAO DE SERVICO DE TRANSPORTE</natOp><mod>57</mod><serie>1</serie><nCT>{int(chave[25:34])}</nCT>'
+            f'<dhEmi>{dia}T10:00:00-03:00</dhEmi><tpImp>1</tpImp><tpEmis>{chave[34]}</tpEmis><cDV>{chave[43]}</cDV>'
+            f'<tpAmb>2</tpAmb><tpCTe>0</tpCTe><procEmi>0</procEmi><verProc>1</verProc><cMunEnv>{FORTALEZA}</cMunEnv>'
+            f'<xMunEnv>FORTALEZA</xMunEnv><UFEnv>CE</UFEnv><modal>01</modal><tpServ>0</tpServ><cMunIni>{FORTALEZA}</cMunIni>'
+            f'<xMunIni>FORTALEZA</xMunIni><UFIni>CE</UFIni><cMunFim>{FORTALEZA}</cMunFim><xMunFim>FORTALEZA</xMunFim>'
+            f'<UFFim>CE</UFFim><retira>1</retira><indIEToma>1</indIEToma><toma3><toma>{toma}</toma></toma3></ide>'
+            f'<emit><CNPJ>{CNPJ_TRANSPORTADORA}</CNPJ><IE>{IE_TRANSPORTADORA}</IE><xNome>TRANSPORTADORA FICTICIA</xNome>'
+            f'<CRT>3</CRT></emit><rem><CNPJ>{rem}</CNPJ><xNome>REMETENTE FICTICIO</xNome></rem>'
+            f'<dest><CNPJ>{dest}</CNPJ><xNome>DESTINATARIO FICTICIO</xNome></dest>'
+            f'<vPrest><vTPrest>{v}</vTPrest><vRec>{v}</vRec></vPrest><imp><ICMS><ICMS00><CST>00</CST><vBC>{v}</vBC>'
+            f'<pICMS>12.00</pICMS><vICMS>{v_icms}</vICMS></ICMS00></ICMS></imp><infCTeNorm><infCarga><vCarga>1000.00</vCarga>'
+            '</infCarga></infCTeNorm></infCte>' + ASSINATURA + '</CTe><protCTe versao="4.00"><infProt><tpAmb>2</tpAmb>'
+            f'<chCTe>{chave}</chCTe><dhRecbto>{dia}T10:00:05-03:00</dhRecbto><nProt>3232500001{chave[28:34]}</nProt>'
+            '<digVal>ZmljdGljaW8=</digVal><cStat>100</cStat><xMotivo>Autorizado o uso do CT-e</xMotivo></infProt></protCTe>'
+            '</cteProc>\n')
+
+
+def cte_canc(chave, dia):
+    prot_ev = f'3232500002{chave[28:34]}'
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<procEventoCTe xmlns="http://www.portalfiscal.inf.br/cte" versao="4.00"><eventoCTe versao="4.00">'
+            f'<infEvento Id="ID110111{chave}01"><cOrgao>23</cOrgao><tpAmb>2</tpAmb><CNPJ>{CNPJ_TRANSPORTADORA}</CNPJ>'
+            f'<chCTe>{chave}</chCTe><dhEvento>{dia}T11:00:00-03:00</dhEvento><tpEvento>110111</tpEvento>'
+            '<nSeqEvento>1</nSeqEvento><detEvento versaoEvento="4.00"><evCancCTe><descEvento>Cancelamento</descEvento>'
+            f'<nProt>3232500001{chave[28:34]}</nProt><xJust>FRETE NAO REALIZADO, EXEMPLO FICTICIO</xJust></evCancCTe>'
+            '</detEvento></infEvento>' + ASSINATURA + '</eventoCTe><retEventoCTe versao="4.00">'
+            f'<infEvento Id="ID{prot_ev}"><tpAmb>2</tpAmb><verAplic>1</verAplic><cOrgao>23</cOrgao><cStat>135</cStat>'
+            f'<xMotivo>Evento registrado e vinculado a CT-e</xMotivo><chCTe>{chave}</chCTe><tpEvento>110111</tpEvento>'
+            f'<xEvento>Cancelamento</xEvento><nSeqEvento>1</nSeqEvento><dhRegEvento>{dia}T11:00:05-03:00</dhRegEvento>'
+            f'<nProt>{prot_ev}</nProt></infEvento></retEventoCTe></procEventoCTe>\n')
+
+
 def cfe(n, dia, cfop, cst, v, v_icms):
     icms = (f'<ICMS00><Orig>0</Orig><CST>{cst}</CST><pICMS>18.00</pICMS><vICMS>{v_icms}</vICMS></ICMS00>' if cst == '00' else
             f'<ICMS40><Orig>0</Orig><CST>{cst}</CST></ICMS40>')
@@ -193,5 +251,16 @@ if __name__ == '__main__':
                                          (5, '0116', '5102', '00', '30.00', '5.40')]:
         (sat / f'CFe{chave_cfe(n)}.xml').write_text(cfe(n, dia, cfop, cst, v, v_icms))
     (sat / f'CFeCanc{chave_cfe(3)}.xml').write_text(cfe_canc(3))
+    (aqui / 'efd-exemplo-frete.txt').write_bytes(montar(frete=True).encode('iso-8859-1'))
+    frete = aqui / 'xml-frete'
+    frete.mkdir(exist_ok=True)
+    # toma 0 = remetente, 3 = destinatário
+    for chave, toma, rem, dest, dia, v, v_icms in [
+            (CTE_TOMADO, '0', CNPJ, CNPJ_CLIENTE, '2025-01-10', '100.00', '12.00'),
+            (CTE_ALHEIO, '0', CNPJ_FORNECEDOR, CNPJ, '2025-01-12', '75.00', '9.00'),
+            (CTE_ESQUECIDO, '3', CNPJ_FORNECEDOR, CNPJ, '2025-01-20', '60.00', '7.20'),
+            (CTE_CANCELADO, '0', CNPJ, CNPJ_CLIENTE, '2025-01-22', '40.00', '4.80')]:
+        (frete / f'CTe{chave}.xml').write_text(cte(chave, toma, rem, dest, dia, v, v_icms))
+    (frete / f'CTeCanc{CTE_CANCELADO}.xml').write_text(cte_canc(CTE_CANCELADO, '2025-01-22'))
     print('gerados: efd-exemplo-valido.txt, efd-exemplo-com-erro.txt, efd-exemplo-malha.txt, xml-malha/,'
-          ' efd-exemplo-sat.txt, xml-sat/')
+          ' efd-exemplo-sat.txt, xml-sat/, efd-exemplo-frete.txt, xml-frete/')

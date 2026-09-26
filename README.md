@@ -144,7 +144,7 @@ curl --data-binary @lote.zip http://127.0.0.1:8095/cruzar
 
 ### Conferir que tudo funciona
 
-O repositório traz três EFDs **100% fictícias** (CNPJ, IE e chave de NF-e inventados, com dígitos verificadores válidos):
+O repositório traz EFDs **100% fictícias** (CNPJ, IE e chaves de NF-e, CF-e e CT-e inventados, com dígitos verificadores válidos):
 
 ```bash
 make teste
@@ -154,6 +154,9 @@ make teste
 - `exemplos/efd-exemplo-com-erro.txt`: tem que sair reprovado com `MSG_VL_ICMS_ANALIT` (ICMS do C190 diferente do C100).
 - `exemplos/efd-exemplo-malha.txt` + `exemplos/xml-malha/`: passa no PVA, mas `/analisar` aponta crédito de uso e
   consumo e `/cruzar` aponta uma nota não escriturada e crédito de fornecedor do Simples acima do permitido.
+- `exemplos/efd-exemplo-sat.txt` + `exemplos/xml-sat/`: `/cruzar` confere os CF-e contra o resumo diário do SAT (C860/C890).
+- `exemplos/efd-exemplo-frete.txt` + `exemplos/xml-frete/`: `/cruzar` aponta crédito de CT-e sem ser o tomador e um
+  CT-e tomado fora do D100; o CT-e cancelado (com o evento) fica de fora.
 
 ---
 
