@@ -100,6 +100,13 @@ as duas origens terem o mesmo formato.
 Depois de cada validação, `ControleEscrituracaoFiscal.apagarEscrituracaoBanco(esc)` remove a escrituração do
 banco embutido. Sem isso o banco cresce a cada arquivo.
 
+O MCP (`Mcp.java`) é a exceção: `processar(arq, etapa, true)` deixa a escrituração no banco e a entrega em
+`PvaServer.mantida`; a sessão guarda esse `EscrituracaoFiscal` e reabre a persistência a cada consulta
+(`PersistenciaFiscalPVA.abrirPersistencia(esc)`). Várias escriturações convivem no banco, mas a chave do PVA é
+CNPJ/CPF + período: importar a mesma chave substitui a anterior, então `processar` fecha antes as sessões com a
+mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do HTTP ou do MCP, trava em
+`PvaServer.class`.
+
 ## Tabelas externas sem diálogo
 
 `ControleAtualizarTabela.atualizarTabelas()` (o que o menu chama) abre um diálogo modal de seleção. O caminho

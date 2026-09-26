@@ -51,6 +51,109 @@ final class Json {
     }
   }
 
+  // Objeto vira LinkedHashMap, lista vira ArrayList, número vira BigDecimal.
+  static Object parse(String s) {
+    int[] i = {0};
+    Object v = valor(s, i);
+    espacos(s, i);
+    if (i[0] != s.length()) throw new IllegalArgumentException("JSON com conteúdo depois do fim, posição " + i[0]);
+    return v;
+  }
+
+  private static void espacos(String s, int[] i) {
+    while (i[0] < s.length() && Character.isWhitespace(s.charAt(i[0]))) i[0]++;
+  }
+
+  private static Object valor(String s, int[] i) {
+    espacos(s, i);
+    if (i[0] >= s.length()) throw new IllegalArgumentException("JSON incompleto");
+    char c = s.charAt(i[0]);
+    if (c == '{') {
+      Map<String, Object> m = new LinkedHashMap<>();
+      i[0]++;
+      espacos(s, i);
+      if (s.charAt(i[0]) == '}') {
+        i[0]++;
+        return m;
+      }
+      while (true) {
+        espacos(s, i);
+        String k = texto(s, i);
+        espacos(s, i);
+        esperar(s, i, ':');
+        m.put(k, valor(s, i));
+        espacos(s, i);
+        if (s.charAt(i[0]) == ',') {
+          i[0]++;
+        } else {
+          esperar(s, i, '}');
+          return m;
+        }
+      }
+    }
+    if (c == '[') {
+      java.util.List<Object> l = new java.util.ArrayList<>();
+      i[0]++;
+      espacos(s, i);
+      if (s.charAt(i[0]) == ']') {
+        i[0]++;
+        return l;
+      }
+      while (true) {
+        l.add(valor(s, i));
+        espacos(s, i);
+        if (s.charAt(i[0]) == ',') {
+          i[0]++;
+        } else {
+          esperar(s, i, ']');
+          return l;
+        }
+      }
+    }
+    if (c == '"') return texto(s, i);
+    for (String lit : new String[] {"true", "false", "null"}) {
+      if (s.startsWith(lit, i[0])) {
+        i[0] += lit.length();
+        return lit.equals("null") ? null : Boolean.valueOf(lit);
+      }
+    }
+    int ini = i[0];
+    while (i[0] < s.length() && "+-0123456789.eE".indexOf(s.charAt(i[0])) >= 0) i[0]++;
+    if (ini == i[0]) throw new IllegalArgumentException("JSON inválido na posição " + ini);
+    return new BigDecimal(s.substring(ini, i[0]));
+  }
+
+  private static void esperar(String s, int[] i, char c) {
+    if (i[0] >= s.length() || s.charAt(i[0]) != c) throw new IllegalArgumentException("esperado '" + c + "' na posição " + i[0]);
+    i[0]++;
+  }
+
+  private static String texto(String s, int[] i) {
+    esperar(s, i, '"');
+    StringBuilder b = new StringBuilder();
+    while (true) {
+      char c = s.charAt(i[0]++);
+      if (c == '"') return b.toString();
+      if (c != '\\') {
+        b.append(c);
+        continue;
+      }
+      char e = s.charAt(i[0]++);
+      switch (e) {
+        case 'b' -> b.append('\b');
+        case 'f' -> b.append('\f');
+        case 'n' -> b.append('\n');
+        case 'r' -> b.append('\r');
+        case 't' -> b.append('\t');
+        case 'u' -> {
+          b.append((char) Integer.parseInt(s.substring(i[0], i[0] + 4), 16));
+          i[0] += 4;
+        }
+        default -> b.append(e);
+      }
+    }
+  }
+
   private static void str(StringBuilder b, String s) {
     b.append('"');
     for (char ch : s.toCharArray()) {

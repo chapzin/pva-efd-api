@@ -43,6 +43,7 @@ Além do veredito do PVA, o serviço faz as conferências que **a malha da SEFAZ
 | `POST /consultar` | Roda um `SELECT` no banco que o PVA montou com o arquivo (relatórios próprios sem escrever leitor de EFD). |
 | `GET /tabelas/{nome}` | Tabelas oficiais que o PVA baixa da Receita (CFOP, códigos de ajuste por UF, leiautes) filtradas por UF, código e data. |
 | `GET /mensagens/{codigo}` | O catálogo de mensagens do validador. |
+| `POST /mcp` | Servidor MCP: o Claude abre a EFD numa sessão, pagina erros e achados e consulta o banco do PVA com SQL. |
 
 Detalhes em [docs/api.md](docs/api.md); a lista das verificações e o porquê de cada uma em
 [docs/verificacoes.md](docs/verificacoes.md).
@@ -152,6 +153,16 @@ zip -j lote.zip minha-efd.txt xmls/*.xml
 curl --data-binary @lote.zip http://127.0.0.1:8095/cruzar
 ```
 
+### Usar pelo Claude (MCP)
+
+```bash
+PVA_DADOS=$HOME/auditorias docker compose up -d --build
+claude mcp add --transport http pva http://127.0.0.1:8095/mcp
+```
+
+O Claude passa a ter `efd_abrir`, `efd_detalhes`, `efd_consultar`, `efd_validar_pasta` e outras ferramentas sobre os
+arquivos de `PVA_DADOS`. Detalhes em [docs/mcp.md](docs/mcp.md).
+
 ### Conferir que tudo funciona
 
 O repositório traz EFDs **100% fictícias** (CNPJ, IE e chaves de NF-e, CF-e e CT-e inventados, com dígitos verificadores válidos):
@@ -168,6 +179,8 @@ make teste
 - `exemplos/efd-exemplo-frete.txt` + `exemplos/xml-frete/`: `/cruzar` aponta crédito de CT-e sem ser o tomador e um
   CT-e tomado fora do D100; o CT-e cancelado (com o evento) fica de fora.
 - Corpo vazio em `/validar` e `/cruzar` tem que responder `400`.
+- `/mcp` responde ao protocolo; subindo com `PVA_DADOS=$PWD/exemplos`, o teste também abre a EFD da malha com os XMLs
+  numa sessão, consulta o banco e fecha.
 
 ---
 
@@ -189,6 +202,7 @@ Para volume grande, prefira um servidor x86_64 (qualquer VPS Linux comum).
 |---|---|---|
 | [docs/como-funciona.md](docs/como-funciona.md) | Qualquer pessoa | A ideia toda explicada sem jargão técnico |
 | [docs/api.md](docs/api.md) | Quem vai integrar | Endpoints, campos do JSON, códigos HTTP, variáveis de ambiente |
+| [docs/mcp.md](docs/mcp.md) | Quem usa o Claude | O PVA como ferramenta MCP: sessões, paginação, SQL |
 | [docs/verificacoes.md](docs/verificacoes.md) | Contadores e auditores | O que `/analisar` e `/cruzar` conferem e por quê |
 | [docs/arquitetura.md](docs/arquitetura.md) | Desenvolvedores | Como o servidor conversa com o núcleo do PVA, por dentro |
 | [docs/solucao-de-problemas.md](docs/solucao-de-problemas.md) | Quem opera | Sintomas conhecidos e como resolver |
@@ -205,6 +219,8 @@ Para volume grande, prefira um servidor x86_64 (qualquer VPS Linux comum).
   a escrituração também é apagada do banco embutido do PVA depois de cada validação (vale também para os XMLs do `/cruzar`,
   que são lidos em memória).
 - `/consultar` aceita só um `SELECT` e roda no banco temporário daquele arquivo.
+- Exceção: a escrituração aberta pelo **MCP** fica no banco até `efd_fechar` ou 60 min ociosa, e o MCP lê só a pasta
+  `PVA_DADOS`, montada só leitura.
 - Nenhum dado sai da sua máquina, exceto as consultas que o **próprio PVA** faz à Receita para baixar as
   tabelas externas (as mesmas que o PVA faz quando você o usa na tela).
 

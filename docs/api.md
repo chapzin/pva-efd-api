@@ -203,6 +203,12 @@ recarrega na memória. Espera a validação em curso terminar antes de começar.
 
 `200` se tudo baixou; `502` se alguma tabela falhou (a lista vem em `falhas`).
 
+## `POST /mcp`
+
+Servidor MCP (Streamable HTTP, JSON-RPC) para o Claude usar o PVA com sessões. Ferramentas, sessões e limites em
+[mcp.md](mcp.md). Validar pelos endpoints HTTP uma EFD de mesmo CNPJ e período de uma sessão aberta fecha essa sessão
+(o PVA guarda uma escrituração por CNPJ e período); a resposta traz os ids em `sessoesFechadas`.
+
 ## Variáveis de ambiente
 
 | Variável | Padrão | Efeito |
@@ -211,4 +217,7 @@ recarrega na memória. Espera a validação em curso terminar antes de começar.
 | `PVA_ATUALIZAR_TABELAS_HORAS` | `24` | Atualiza as tabelas no boot e a cada N horas. `0` = só pelo endpoint. |
 | `PVA_LIMITE_MB` | `512` | Tamanho máximo do arquivo aceito. |
 | `PVA_UF_DIFAL_NA_ENTRADA` | `CE` | UFs (separadas por vírgula) em que `DIFAL_SEM_AJUSTE` sai como `info`, porque o DIFAL é cobrado na entrada por guia própria. |
+| `PVA_DADOS_HOST` | vazio | Caminho do host da pasta montada em `/dados` (MCP). |
+| `PVA_MCP_SESSOES` | `4` | Sessões do MCP abertas ao mesmo tempo. |
+| `PVA_MCP_TTL_MIN` | `60` | Minutos de ociosidade até o MCP fechar a sessão. |
 | `JAVA_OPTS` | vazio | Opções extras para a JVM (ex.: `-Xmx1536m`). |

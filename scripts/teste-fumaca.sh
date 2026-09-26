@@ -111,3 +111,34 @@ echo "ok: /cruzar confere D100 contra o CT-e pelo tomador"
 curl -sf "$URL/mensagens/MSG_VL_ICMS_ANALIT" | grep -q 'VL_ICMS' || { echo "FALHOU (mensagens)"; exit 1; }
 curl -sf "$URL/tabelas/CFOP?codigo=1556" | grep -q 'uso ou consumo' || { echo "FALHOU (tabelas)"; exit 1; }
 echo "ok: /mensagens e /tabelas"
+
+# MCP: protocolo sempre; o fluxo com arquivo só se os exemplos estiverem montados (PVA_DADOS=./exemplos).
+mcp() { curl -sS --max-time 900 -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' --data "$1" "$URL/mcp"; }
+ferramenta() { mcp "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}"; }
+r=$(mcp '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"teste","version":"1"}}}')
+echo "$r" | grep -q '"serverInfo":{"name":"pva-efd-api"' || { echo "FALHOU (mcp initialize): $r"; exit 1; }
+r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$URL/mcp")
+[ "$r" = 202 ] || { echo "FALHOU (mcp notificação): HTTP $r"; exit 1; }
+r=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+for t in efd_abrir efd_detalhes efd_consultar efd_fechar efd_validar_pasta; do
+  echo "$r" | grep -q "\"$t\"" || { echo "FALHOU (mcp tools/list, $t): $r"; exit 1; }
+done
+r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Origin: https://exemplo.com' --data '{}' "$URL/mcp")
+[ "$r" = 403 ] || { echo "FALHOU (mcp origem externa): HTTP $r"; exit 1; }
+r=$(ferramenta explicar_mensagem '{"codigo":"MSG_VL_ICMS_ANALIT"}')
+echo "$r" | grep -q 'VL_ICMS' || { echo "FALHOU (mcp explicar_mensagem): $r"; exit 1; }
+echo "ok: /mcp responde ao protocolo (initialize, notificação, tools/list, origem)"
+
+if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'efd-exemplo-malha.txt'; then
+  r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-malha.txt","pasta_xml":"xml-malha"}')
+  s=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
+  [ -n "$s" ] && echo "$r" | grep -q XML_NAO_ESCRITURADO || { echo "FALHOU (mcp efd_abrir): $r"; exit 1; }
+  r=$(ferramenta efd_consultar "{\"sessao\":\"$s\",\"sql\":\"SELECT COUNT(*) N FROM reg_c100\"}")
+  echo "$r" | grep -q 'N\\":\\"2' || { echo "FALHOU (mcp efd_consultar): $r"; exit 1; }
+  r=$(ferramenta efd_detalhes "{\"sessao\":\"$s\",\"secao\":\"achados\",\"codigo\":\"XML_NAO_ESCRITURADO\"}")
+  echo "$r" | grep -q 23250177888999000181550010000004571876543228 || { echo "FALHOU (mcp efd_detalhes): $r"; exit 1; }
+  ferramenta efd_fechar "{\"sessao\":\"$s\"}" | grep -q 'fechada' || { echo "FALHOU (mcp efd_fechar)"; exit 1; }
+  echo "ok: /mcp abre a EFD com os XMLs, consulta o banco, pagina o achado e fecha a sessão"
+else
+  echo "pulado: fluxo de arquivos do /mcp (suba com PVA_DADOS=./exemplos para testar)"
+fi

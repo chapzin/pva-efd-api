@@ -11,8 +11,13 @@ services:
       # Porta na sua máquina: PVA_PORTA_HOST=8099 docker compose up -d
       - "127.0.0.1:${PVA_PORTA_HOST:-8095}:8095"
     mem_limit: 2g
+    volumes:
+      # Pasta que o MCP (/mcp) enxerga, só leitura. Ex.: PVA_DADOS=$HOME/auditorias docker compose up -d
+      - "${PVA_DADOS:-./dados}:/dados:ro"
     environment:
       # Baixa as tabelas externas da Receita no boot e a cada N horas (0 = só manual).
       PVA_ATUALIZAR_TABELAS_HORAS: "24"
       # Tamanho máximo do TXT aceito em /validar.
       PVA_LIMITE_MB: "512"
+      # O mesmo caminho do host, para o Claude poder passar o caminho que ele conhece.
+      PVA_DADOS_HOST: "${PVA_DADOS:-}"

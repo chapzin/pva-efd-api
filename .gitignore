@@ -3,3 +3,4 @@ resultados/
 .DS_Store
 instalador/*.sh
 __pycache__/
+dados/

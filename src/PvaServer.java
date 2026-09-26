@@ -119,8 +119,7 @@ public class PvaServer {
         "linha", linha, "valor", valor, "esperado", esperado, "conteudo", conteudo);
   }
 
-  static List<Map<String, Object>> inconsistencias(IPersistencia per) throws Exception {
-    List<Map<String, Object>> out = new ArrayList<>();
+  static String tabelaInconsistencias(IPersistencia per) throws Exception {
     String tabela = null;
     try (ResultSet t = per.executarComandoSql("SHOW TABLES")) {
       while (t.next()) {
@@ -128,6 +127,12 @@ public class PvaServer {
         if (n.toLowerCase().contains("inconsist")) tabela = n;
       }
     }
+    return tabela;
+  }
+
+  static List<Map<String, Object>> inconsistencias(IPersistencia per) throws Exception {
+    List<Map<String, Object>> out = new ArrayList<>();
+    String tabela = tabelaInconsistencias(per);
     if (tabela == null) return out;
     try (ResultSet r = per.executarComandoSql("SELECT TIPO, ID_MENSAGEM, NOME_REGISTRO, ID_CAMPO, NUMERO_LINHA,"
         + " VALOR_CAMPO, VALOR_ESPERADO_CAMPO, CONTEUDO_LINHA FROM " + tabela + " ORDER BY NUMERO_LINHA LIMIT 500")) {
@@ -208,7 +213,17 @@ public class PvaServer {
   // Importa, roda a etapa extra com o banco da escrituração aberto e apaga tudo.
   // O PVA é singleton: uma escrituração por vez.
   static synchronized Map<String, Object> processar(Path arq, Etapa etapa) {
+    return processar(arq, etapa, false);
+  }
+
+  // Com manter=true a escrituração integrada fica no banco (em `mantida`) para as sessões do MCP.
+  static EscrituracaoFiscal mantida;
+
+  static synchronized Map<String, Object> processar(Path arq, Etapa etapa, boolean manter) {
     capturada = null;
+    mantida = null;
+    // Importar a mesma escrituração (CNPJ e período) substitui a que está no banco.
+    List<String> fechadas = Mcp.liberarMesmaEscrituracao(arq);
     mensagens.clear();
     long t = System.currentTimeMillis();
     Map<String, Object> out = Json.obj("versaoPva", versao);
@@ -222,6 +237,7 @@ public class PvaServer {
     if (assinado) av.add(Json.obj("codigo", "ASSINATURA_REMOVIDA", "mensagem", "O arquivo veio assinado (ReceitanetBX ou"
         + " PVA). A assinatura depois do |9999| foi removida para validar; o conteúdo da escrituração é o mesmo."));
     out.put("avisos", av);
+    if (!fechadas.isEmpty()) out.put("sessoesFechadas", fechadas);
     try {
       controle.importarEscrituracao(arq.toString(), ui, progresso, false, 1000, 1000);
       String estado = capturada == null ? null : String.valueOf(capturada.getEstado());
@@ -260,7 +276,9 @@ public class PvaServer {
       out.put("valido", false);
       out.put("falha", String.valueOf(e));
     } finally {
-      if (capturada != null) {
+      if (manter && capturada != null && capturada.getEstado() != null) {
+        mantida = capturada;
+      } else if (capturada != null) {
         try {
           ControleEscrituracaoFiscal.getSingleton().apagarEscrituracaoBanco(capturada);
         } catch (Throwable e) {
@@ -278,6 +296,10 @@ public class PvaServer {
     out.put("resumo", resumo);
     out.put("verificacoes", Verificacoes.executar(per, resumo));
   };
+
+  static boolean sqlPermitido(String sql) {
+    return sql.regionMatches(true, 0, "SELECT", 0, 6) && !SQL_PROIBIDO.matcher(sql).find();
+  }
 
   static final Pattern SQL_PROIBIDO = Pattern.compile(";|\\b(INTO|OUTFILE|DUMPFILE|LOAD_FILE|SLEEP|BENCHMARK|GET_LOCK)\\b",
       Pattern.CASE_INSENSITIVE);
@@ -518,7 +540,7 @@ public class PvaServer {
     srv.createContext("/analisar", ex -> comArquivo(ex, arq -> Json.of(processar(arq, ANALISE))));
     srv.createContext("/consultar", ex -> {
       String sql = parametros(ex).getOrDefault("sql", "").trim();
-      if (!sql.regionMatches(true, 0, "SELECT", 0, 6) || SQL_PROIBIDO.matcher(sql).find()) {
+      if (!sqlPermitido(sql)) {
         responder(ex, 400, "{\"erro\":\"informe ?sql= com um único SELECT (sem ;, INTO, OUTFILE, LOAD_FILE)\"}");
         return;
       }
@@ -567,6 +589,8 @@ public class PvaServer {
         responder(ex, 400, Json.of(Json.obj("erro", String.valueOf(e))));
       }
     });
+    srv.createContext("/mcp", Mcp::tratar);
+    Mcp.iniciar();
     srv.setExecutor(Executors.newFixedThreadPool(4));
     srv.start();
     Executors.newSingleThreadScheduledExecutor()
