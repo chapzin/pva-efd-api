@@ -30,7 +30,7 @@ acrescentam campos à mesma resposta.
 | Campo | Tipo | Significado |
 |---|---|---|
 | `versaoPva` | texto | Versão do PVA que validou. |
-| `avisos` | lista | Conferências feitas **antes** do PVA. Hoje: `LEIAUTE_DO_PERIODO`, quando o `COD_VER` do 0000 não é o leiaute vigente na data inicial (segundo a tabela `VERSOES_LEIAUTE` da Receita), com `informado` e `esperado`; e `ASSINATURA_REMOVIDA`, quando o arquivo veio assinado e o serviço cortou a assinatura depois do `\|9999\|`. |
+| `avisos` | lista | Conferências feitas **antes** do PVA. Hoje: `LEIAUTE_DO_PERIODO`, quando o `COD_VER` do 0000 não é o leiaute vigente na data inicial (segundo a tabela `VERSOES_LEIAUTE` da Receita), com `informado` e `esperado`; `ASSINATURA_REMOVIDA`, quando o arquivo veio assinado e o serviço cortou a assinatura depois do `\|9999\|`; e `SEM_REGISTRO_0000`, quando a primeira linha não é o registro 0000 (arquivo que não é EFD ou com lixo antes do 0000; o PVA reprova em seguida com `falha`). |
 | `estado` | texto ou `null` | Estado em que o PVA deixou a escrituração. `GERADA_PARA_ENTREGA` ou `VALIDADA` = aprovado; `EM_EDICAO` = reprovado; `null` = o arquivo nem chegou a ser integrado (erro de estrutura, veja abaixo). |
 | `valido` | booleano | `true` só se `estado` for `GERADA_PARA_ENTREGA` ou `VALIDADA`. |
 | `erros` | lista | Inconsistências apontadas pelo PVA (máximo de 500 por arquivo, na ordem das linhas). |
@@ -64,7 +64,8 @@ fachada interna para recuperar esses erros e os devolve no mesmo formato em `err
 |---|---|
 | `405` | Método diferente de `POST`. |
 | `400` | Parâmetro inválido (`/consultar`, `/cruzar`, `/tabelas`). |
-| `413` | Corpo vazio ou maior que `PVA_LIMITE_MB`. |
+| `400` | Corpo vazio. |
+| `413` | Corpo maior que `PVA_LIMITE_MB`. |
 | `500` | Erro inesperado no servidor; o motivo vem em `erro`. |
 
 ## `GET /saude`

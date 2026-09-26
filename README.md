@@ -106,6 +106,16 @@ curl http://127.0.0.1:8095/saude
 
 Quando responder `"ok":true`, está pronto.
 
+**Porta 8095 ocupada?** Suba em outra e aponte os scripts para ela com `PVA_URL` (vale para `make teste`,
+`validar.sh` e `validar_lote.py`):
+
+```bash
+PVA_PORTA_HOST=8099 docker compose up -d --build
+```
+```bash
+export PVA_URL=http://127.0.0.1:8099
+```
+
 ### Validar um arquivo
 
 ```bash

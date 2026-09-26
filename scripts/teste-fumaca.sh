@@ -2,7 +2,7 @@
 # Confere o serviço ponta a ponta com os arquivos fictícios de exemplos/:
 # o válido tem que sair GERADA_PARA_ENTREGA e o com erro tem que trazer MSG_VL_ICMS_ANALIT.
 set -euo pipefail
-URL="${URL:-http://127.0.0.1:8095}"
+URL="${URL:-${PVA_URL:-http://127.0.0.1:8095}}"
 AQUI="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "aguardando $URL/saude ..."

@@ -8,7 +8,8 @@ services:
     restart: unless-stopped
     ports:
       # Não há autenticação: não troque 127.0.0.1 por 0.0.0.0 sem um proxy na frente.
-      - "127.0.0.1:8095:8095"
+      # Porta na sua máquina: PVA_PORTA_HOST=8099 docker compose up -d
+      - "127.0.0.1:${PVA_PORTA_HOST:-8095}:8095"
     mem_limit: 2g
     environment:
       # Baixa as tabelas externas da Receita no boot e a cada N horas (0 = só manual).

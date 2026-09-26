@@ -471,8 +471,12 @@ public class PvaServer {
     Path arq = Files.createTempFile("pva-", ".bin");
     try (InputStream in = ex.getRequestBody()) {
       long n = Files.copy(in, arq, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-      if (n == 0 || n > LIMITE_BYTES) {
-        responder(ex, 413, "{\"erro\":\"arquivo vazio ou maior que o limite (PVA_LIMITE_MB)\"}");
+      if (n == 0) {
+        responder(ex, 400, "{\"erro\":\"arquivo vazio\"}");
+        return;
+      }
+      if (n > LIMITE_BYTES) {
+        responder(ex, 413, "{\"erro\":\"arquivo maior que o limite (PVA_LIMITE_MB)\"}");
         return;
       }
       String r = t.tratar(arq);

@@ -16,7 +16,7 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends ca-cert
 COPY instalador/ /tmp/instalador/
 RUN f="/tmp/instalador/SpedEFD_linux_x86_64-${PVA_VERSAO}.sh"; \
     if [ -f "$f" ]; then cp "$f" /tmp/pva.sh; \
-    else curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 -o /tmp/pva.sh "$PVA_URL"; fi && \
+    else curl -fsSL -C - --retry 5 --retry-all-errors --retry-delay 10 -o /tmp/pva.sh "$PVA_URL"; fi && \
     echo "${PVA_SHA256}  /tmp/pva.sh" | sha256sum -c - && \
     cd /tmp && sh /tmp/pva.sh -q -dir /opt/pva -overwrite && rm -rf /tmp/pva.sh /tmp/instalador
 # O diálogo "atualizar tabelas externas?" é modal e trava a validação sem operador;

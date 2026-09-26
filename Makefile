@@ -1,4 +1,5 @@
-URL ?= http://127.0.0.1:8095
+PVA_URL ?= http://127.0.0.1:8095
+URL ?= $(PVA_URL)
 
 .PHONY: build up down logs saude teste
 

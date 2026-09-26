@@ -41,7 +41,7 @@ def enviar(caminho, rota):
 
 def br(v):
     # Excel em português lê "36.0" como texto; vírgula decimal abre como número.
-    return str(v).replace('.', ',')
+    return format(Decimal(str(v)), '.2f').replace('.', ',')
 
 
 def gravar_csv(caminho, campos, linhas):
