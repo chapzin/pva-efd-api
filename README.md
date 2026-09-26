@@ -167,6 +167,7 @@ make teste
 - `exemplos/efd-exemplo-sat.txt` + `exemplos/xml-sat/`: `/cruzar` confere os CF-e contra o resumo diário do SAT (C860/C890).
 - `exemplos/efd-exemplo-frete.txt` + `exemplos/xml-frete/`: `/cruzar` aponta crédito de CT-e sem ser o tomador e um
   CT-e tomado fora do D100; o CT-e cancelado (com o evento) fica de fora.
+- Corpo vazio em `/validar` e `/cruzar` tem que responder `400`.
 
 ---
 

@@ -31,6 +31,12 @@ echo "ok: arquivo com erro reprovado com MSG_VL_ICMS_ANALIT"
 
 enviar() { curl -sS --max-time 900 --data-binary @"$2" "$URL/$1"; }
 
+for rota in validar cruzar; do
+  r=$(curl -sS -o /dev/null -w '%{http_code}' --data-binary @/dev/null "$URL/$rota")
+  [ "$r" = 400 ] || { echo "FALHOU (corpo vazio em /$rota): HTTP $r"; exit 1; }
+done
+echo "ok: corpo vazio responde 400"
+
 r=$(enviar analisar "$AQUI/exemplos/efd-exemplo-malha.txt")
 echo "$r" | grep -q '"estado":"GERADA_PARA_ENTREGA"' && echo "$r" | grep -q 'CREDITO_USO_CONSUMO' \
   || { echo "FALHOU (analisar): $r"; exit 1; }
