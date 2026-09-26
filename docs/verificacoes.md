@@ -39,7 +39,7 @@ serve para montar o painel da carteira sem abrir o arquivo.
 ## `/cruzar`: EFD × XML
 
 Recebe um ZIP com a EFD e os XMLs de NF-e, NFC-e, CT-e e eventos de cancelamento do período. Casa cada
-documento pela **chave de acesso** (C100.CHV_NFE, D100.CHV_CTE) e compara com o que o XML diz.
+documento pela **chave de acesso autorizada** (a do protocolo do XML) com C100.CHV_NFE e D100.CHV_CTE e compara com o que o XML diz.
 
 | Código | Nível | O que procura | Por que importa |
 |---|---|---|---|
@@ -53,6 +53,8 @@ documento pela **chave de acesso** (C100.CHV_NFE, D100.CHV_CTE) e compara com o 
 | `OPERACAO_INVERTIDA` | alerta | Nota própria com IND_OPER diferente do tpNF do XML | Entrada lançada como saída (ou o contrário) inverte débito e crédito. |
 | `CHAVE_DE_TERCEIRO` | alerta | NF-e escriturada em que o CNPJ da empresa não é emitente nem destinatário | Crédito de nota de outra empresa é glosado. |
 | `CTE_SEM_SER_TOMADOR` | alerta | CT-e de entrada com crédito, em que a empresa não é a tomadora do serviço | Só o tomador do frete se credita do ICMS do CT-e. |
+| `CHAVE_NAO_AUTORIZADA_ESCRITURADA` | alerta | C100 com a chave do `Id` de um XML cujo protocolo autoriza **outra** chave | ERP que regera a nota guarda o XML com um `Id` que a SEFAZ nunca autorizou. A EFD que usa esse `Id` escritura documento inexistente; se a chave autorizada também estiver em outro mês, a venda foi lançada duas vezes. |
+| `XML_CHAVE_DIFERE_PROTOCOLO` | info | XML em que o `Id` do `infNFe`/`infCte` difere do `chNFe`/`chCTe` do protocolo | O cruzamento usa a chave do protocolo, que é a que vale. Guarde o XML autorizado de verdade. |
 | `ESCRITURADO_SEM_XML` | info | C100/D100 com chave e sem XML no ZIP | Mostra o que falta coletar. |
 
 A tolerância de valor é R$ 0,01. Documentos cancelados ou denegados na EFD não entram nas comparações de valor.

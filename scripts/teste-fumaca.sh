@@ -45,6 +45,17 @@ for c in XML_NAO_ESCRITURADO CREDITO_SIMPLES_ACIMA_PERMITIDO; do
 done
 echo "ok: /cruzar aponta nota não escriturada e crédito do Simples acima do permitido"
 
+# Nota regerada pelo ERP: XML assinado com um Id, protocolo autorizando outra chave; a EFD usou o Id.
+DIR="$(mktemp -d)"
+cp "$AQUI/exemplos/efd-exemplo-malha.txt" "$AQUI"/exemplos/xml-malha/*.xml "$DIR"/
+PROPRIA=23250111222333000181550010000001231123456781
+sed -i.bak "s#<chNFe>$PROPRIA</chNFe>#<chNFe>23250111222333000181550010000001231999999990</chNFe>#" "$DIR/$PROPRIA.xml"
+(cd "$DIR" && zip -qj malha.zip efd-exemplo-malha.txt ./*.xml)
+r=$(enviar cruzar "$DIR/malha.zip")
+rm -rf "$DIR"
+echo "$r" | grep -q CHAVE_NAO_AUTORIZADA_ESCRITURADA || { echo "FALHOU (cruzar, chave do protocolo): $r"; exit 1; }
+echo "ok: /cruzar casa pela chave do protocolo e aponta a EFD que usou o Id do XML regerado"
+
 curl -sf "$URL/mensagens/MSG_VL_ICMS_ANALIT" | grep -q 'VL_ICMS' || { echo "FALHOU (mensagens)"; exit 1; }
 curl -sf "$URL/tabelas/CFOP?codigo=1556" | grep -q 'uso ou consumo' || { echo "FALHOU (tabelas)"; exit 1; }
 echo "ok: /mensagens e /tabelas"

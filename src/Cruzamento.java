@@ -27,6 +27,8 @@ final class Cruzamento {
     LocalDate emissao;
     BigDecimal valor = BigDecimal.ZERO, icms = BigDecimal.ZERO, credSN = BigDecimal.ZERO;
     String cStat;
+    // Id do infNFe/infCte quando difere da chave autorizada no protocolo (nota regerada pelo ERP).
+    String idAssinado;
     boolean cancelada;
     String arquivo;
 
@@ -65,9 +67,11 @@ final class Cruzamento {
       Element infCte = primeiro(raiz, "infCte");
       Element evento = primeiro(raiz, "infEvento");
       if (infNFe != null) {
-        lote.docs.put(chaveDe(infNFe.getAttribute("Id")), nfe(infNFe, raiz, nome));
+        Doc x = nfe(infNFe, raiz, nome);
+        lote.docs.put(x.chave, x);
       } else if (infCte != null) {
-        lote.docs.put(chaveDe(infCte.getAttribute("Id")), cte(infCte, raiz, nome));
+        Doc x = cte(infCte, raiz, nome);
+        lote.docs.put(x.chave, x);
       } else if (evento != null) {
         String tp = texto(evento, "tpEvento");
         String ch = texto(evento, "chNFe") != null ? texto(evento, "chNFe") : texto(evento, "chCTe");
@@ -101,9 +105,19 @@ final class Cruzamento {
     d.icms = num(texto(tot, "vICMS"));
     NodeList cred = inf.getElementsByTagName("vCredICMSSN");
     for (int i = 0; i < cred.getLength(); i++) d.credSN = d.credSN.add(num(cred.item(i).getTextContent()));
-    Element prot = primeiro(raiz, "infProt");
-    d.cStat = prot == null ? null : texto(prot, "cStat");
+    protocolo(d, primeiro(raiz, "infProt"), "chNFe");
     return d;
+  }
+
+  // A chave que vale é a do protocolo: há ERP que regera a nota e guarda o XML assinado com outro Id.
+  private static void protocolo(Doc d, Element prot, String tag) {
+    if (prot == null) return;
+    d.cStat = texto(prot, "cStat");
+    String ch = chaveDe(texto(prot, tag));
+    if (ch.length() == 44 && !ch.equals(d.chave)) {
+      d.idAssinado = d.chave;
+      d.chave = ch;
+    }
   }
 
   private static Doc cte(Element inf, Element raiz, String nome) {
@@ -132,8 +146,7 @@ final class Cruzamento {
     d.valor = num(texto(vPrest, "vTPrest"));
     Element imp = primeiro(inf, "imp");
     d.icms = num(texto(imp, "vICMS"));
-    Element prot = primeiro(raiz, "infProt");
-    d.cStat = prot == null ? null : texto(prot, "cStat");
+    protocolo(d, primeiro(raiz, "infProt"), "chCTe");
     return d;
   }
 
@@ -147,7 +160,11 @@ final class Cruzamento {
 
     List<Map<String, Object>> naoEscrit = new ArrayList<>(), semXml = new ArrayList<>(), valor = new ArrayList<>(),
         credMaior = new ArrayList<>(), debMenor = new ArrayList<>(), cancel = new ArrayList<>(), deneg = new ArrayList<>(),
-        invertida = new ArrayList<>(), terceiro = new ArrayList<>(), naoTomador = new ArrayList<>(), simples = new ArrayList<>();
+        invertida = new ArrayList<>(), terceiro = new ArrayList<>(), naoTomador = new ArrayList<>(), simples = new ArrayList<>(),
+        idNaoAutorizado = new ArrayList<>(), idDiverge = new ArrayList<>();
+    Map<String, Doc> porId = new HashMap<>();
+    for (Doc x : lote.docs.values()) if (x.idAssinado != null) porId.put(x.idAssinado, x);
+    Set<String> idEscriturado = new HashSet<>();
 
     Set<String> escrituradas = new HashSet<>();
     List<Map<String, String>> c100 = Verificacoes.linhas(per,
@@ -167,6 +184,12 @@ final class Cruzamento {
         Doc x = lote.docs.get(ch);
         Map<String, Object> base = Json.obj("registro", reg, "linha", Verificacoes.inteiro(r.get("LINHA")), "documento", r.get("NUM_DOC"),
             "chave", ch);
+        if (x == null && porId.containsKey(ch)) {
+          Doc a = porId.get(ch);
+          idEscriturado.add(a.chave);
+          idNaoAutorizado.add(com(base, "chaveAutorizada", a.chave, "arquivoXml", a.arquivo, "valor", vIcms));
+          continue;
+        }
         if (x == null) {
           if (sit != 2 && sit != 3 && sit != 4 && sit != 5) semXml.add(base);
           continue;
@@ -222,6 +245,12 @@ final class Cruzamento {
           "arquivoXml", x.arquivo));
     }
 
+    for (Doc x : lote.docs.values()) {
+      if (x.idAssinado == null || idEscriturado.contains(x.chave)) continue;
+      idDiverge.add(Json.obj("tipo", x.tipo, "chave", x.chave, "idAssinado", x.idAssinado, "escriturada", escrituradas.contains(x.chave),
+          "arquivoXml", x.arquivo));
+    }
+
     estatistica.put("xmlsLidos", lote.lidos);
     estatistica.put("documentos", lote.docs.size());
     estatistica.put("eventosCancelamento", lote.cancelamentos.size());
@@ -262,6 +291,15 @@ final class Cruzamento {
         "LC 87/1996, art. 23");
     add(out, naoTomador, "CTE_SEM_SER_TOMADOR", "alerta", "Crédito de CT-e em que o contribuinte não é o tomador",
         "Só o tomador do serviço de transporte pode se creditar do ICMS do CT-e.", "LC 87/1996, art. 20 e 23");
+    add(out, idNaoAutorizado, "CHAVE_NAO_AUTORIZADA_ESCRITURADA", "alerta", "Documento escriturado com a chave do XML regerado, não com a autorizada",
+        "O XML assinado traz um Id diferente da chave que a SEFAZ autorizou (protocolo). A EFD usou o Id, que não existe na"
+            + " SEFAZ. Costuma vir de ERP que regera a nota; se a chave autorizada também estiver escriturada em outro mês, a"
+            + " operação foi lançada duas vezes.",
+        "Ajuste SINIEF 07/2005 (chave de acesso); Guia Prático EFD ICMS/IPI (C100, CHV_NFE)");
+    add(out, idDiverge, "XML_CHAVE_DIFERE_PROTOCOLO", "info", "XML com Id diferente da chave autorizada",
+        "O cruzamento usou a chave do protocolo, que é a que vale. Guarde o XML autorizado de verdade: este arquivo não é o"
+            + " que a SEFAZ recebeu.",
+        "Ajuste SINIEF 07/2005 (chave de acesso)");
     add(out, semXml, "ESCRITURADO_SEM_XML", "info", "Documento escriturado sem XML na pasta enviada",
         "Normal se a pasta não tiver todos os XMLs; útil para descobrir o que falta coletar.", "—");
     return out;
