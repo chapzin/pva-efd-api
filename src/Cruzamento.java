@@ -8,6 +8,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Document;
@@ -30,7 +32,10 @@ final class Cruzamento {
     // Id do infNFe/infCte quando difere da chave autorizada no protocolo (nota regerada pelo ERP).
     String idAssinado;
     boolean cancelada;
-    String arquivo;
+    String arquivo, ufDestino;
+    // ICMS e CST/CSOSN dos itens por CFOP: é nessa granularidade que o C190 se compara com a nota.
+    final Map<String, BigDecimal> icmsCfop = new TreeMap<>();
+    final Map<String, Set<String>> cstCfop = new TreeMap<>();
 
     boolean autorizada() {
       return cStat == null || cStat.equals("100") || cStat.equals("150");
@@ -100,6 +105,18 @@ final class Cruzamento {
     d.emitente = doc(emit);
     d.crt = texto(emit, "CRT");
     d.destinatario = doc(primeiro(inf, "dest"));
+    d.ufDestino = texto(primeiro(inf, "enderDest"), "UF");
+    NodeList dets = inf.getElementsByTagName("det");
+    for (int i = 0; i < dets.getLength(); i++) {
+      Element det = (Element) dets.item(i);
+      String cfop = texto(primeiro(det, "prod"), "CFOP");
+      Element icms = primeiro(primeiro(det, "imposto"), "ICMS");
+      Element grupo = icms == null ? null : primeiroFilho(icms);
+      String cst = grupo == null ? null : texto(grupo, "CST") != null ? texto(grupo, "CST") : texto(grupo, "CSOSN");
+      cfop = cfop == null ? "?" : cfop;
+      d.icmsCfop.merge(cfop, num(grupo == null ? null : texto(grupo, "vICMS")), BigDecimal::add);
+      if (cst != null) d.cstCfop.computeIfAbsent(cfop, k -> new TreeSet<>()).add(cst);
+    }
     Element tot = primeiro(inf, "ICMSTot");
     d.valor = num(texto(tot, "vNF"));
     d.icms = num(texto(tot, "vICMS"));
@@ -166,6 +183,14 @@ final class Cruzamento {
     for (Doc x : lote.docs.values()) if (x.idAssinado != null) porId.put(x.idAssinado, x);
     Set<String> idEscriturado = new HashSet<>();
 
+    Map<String, Map<String, BigDecimal>> c190Icms = new HashMap<>();
+    Map<String, Map<String, Set<String>>> c190Cst = new HashMap<>();
+    for (Map<String, String> r : Verificacoes.linhas(per, "SELECT c.LINHA, a.CFOP, a.CST_ICMS, a.VL_ICMS FROM reg_c190 a"
+        + " JOIN reg_c100 c ON a.ID_PAI = c.ID WHERE c.IND_OPER = 1 AND c.IND_EMIT = 0")) {
+      c190Icms.computeIfAbsent(r.get("LINHA"), k -> new TreeMap<>()).merge(r.get("CFOP"), Verificacoes.dec(r.get("VL_ICMS")), BigDecimal::add);
+      c190Cst.computeIfAbsent(r.get("LINHA"), k -> new TreeMap<>()).computeIfAbsent(r.get("CFOP"), k -> new TreeSet<>()).add(r.get("CST_ICMS"));
+    }
+
     Set<String> escrituradas = new HashSet<>();
     List<Map<String, String>> c100 = Verificacoes.linhas(per,
         "SELECT LINHA, IND_OPER, IND_EMIT, COD_MOD, COD_SIT, NUM_DOC, CHV_NFE, VL_DOC, VL_ICMS FROM reg_c100");
@@ -215,7 +240,8 @@ final class Cruzamento {
             credMaior.add(com(base, "creditado", vIcms, "destacado", x.icms, "valor", vIcms.subtract(x.icms)));
           }
           if (oper == 1 && emissao == 0 && x.icms.subtract(vIcms).compareTo(TOLERANCIA) > 0) {
-            debMenor.add(com(base, "debitado", vIcms, "destacado", x.icms, "valor", x.icms.subtract(vIcms)));
+            debMenor.add(com(base, "debitado", vIcms, "destacado", x.icms, "valor", x.icms.subtract(vIcms), "ufDestino", x.ufDestino,
+                "porCfop", porCfop(x, c190Icms.get(r.get("LINHA")), c190Cst.get(r.get("LINHA")))));
           }
           if (emissao == 0 && x.tpNF != null && Verificacoes.inteiro(x.tpNF) != oper) {
             invertida.add(com(base, "indOperEfd", r.get("IND_OPER"), "tpNFXml", x.tpNF));
@@ -279,7 +305,9 @@ final class Cruzamento {
             + " crédito. Crédito acima disso é indicador de malha (ex.: SEFAZ-CE, indicador 45).",
         "LC 123/2006, art. 23, §1º");
     add(out, debMenor, "DEBITO_MENOR_QUE_DESTACADO", "atencao", "Débito de ICMS menor que o destacado na NF-e própria",
-        "A nota de saída destaca mais ICMS do que a EFD debita. O fisco cobra a diferença pelo valor do XML.",
+        "A nota de saída destaca mais ICMS do que a EFD debita. O fisco cobra a diferença pelo valor do XML. porCfop compara"
+            + " os itens do XML com o C190: CST 00 na nota e 060 na EFD (CFOP 6403/6404) indica C190 montado pelo cadastro do"
+            + " ERP, não pela nota emitida.",
         "LC 87/1996, art. 13");
     add(out, valor, "VALOR_DIVERGENTE_DO_XML", "atencao", "Valor do documento diferente do XML",
         "VL_DOC escriturado difere do vNF/vTPrest do XML.", "Guia Prático EFD ICMS/IPI (C100/D100, campo VL_DOC)");
@@ -305,6 +333,24 @@ final class Cruzamento {
     return out;
   }
 
+  // Diferença por CFOP entre os itens do XML e o C190. Padrão típico: CFOP 6403/6404 com CST 00 na nota e 060 na EFD
+  // (o cadastro do ERP diz ST, a nota tributou) ou saída interna com alíquota menor no C190.
+  static List<Map<String, Object>> porCfop(Doc x, Map<String, BigDecimal> efd, Map<String, Set<String>> cstEfd) {
+    Map<String, BigDecimal> e = efd == null ? Map.of() : efd;
+    Map<String, Set<String>> c = cstEfd == null ? Map.of() : cstEfd;
+    Set<String> cfops = new TreeSet<>(x.icmsCfop.keySet());
+    cfops.addAll(e.keySet());
+    List<Map<String, Object>> out = new ArrayList<>();
+    for (String cf : cfops) {
+      BigDecimal nx = x.icmsCfop.getOrDefault(cf, BigDecimal.ZERO), ne = e.getOrDefault(cf, BigDecimal.ZERO);
+      if (nx.subtract(ne).abs().compareTo(TOLERANCIA) <= 0) continue;
+      out.add(Json.obj("cfop", cf, "cstXml", String.join("/", x.cstCfop.getOrDefault(cf, Set.of())),
+          "cstEfd", e.containsKey(cf) ? String.join("/", c.getOrDefault(cf, Set.of())) : null, "icmsXml", nx, "icmsEfd", ne,
+          "diferenca", nx.subtract(ne)));
+    }
+    return out;
+  }
+
   private static void add(List<Map<String, Object>> out, List<Map<String, Object>> oc, String codigo, String nivel, String titulo,
       String explicacao, String fundamento) {
     if (!oc.isEmpty()) out.add(Verificacoes.achado(codigo, nivel, titulo, explicacao, fundamento, oc));
@@ -324,6 +370,11 @@ final class Cruzamento {
     if (e == null) return null;
     NodeList l = e.getElementsByTagName(tag);
     return l.getLength() == 0 ? null : (Element) l.item(0);
+  }
+
+  private static Element primeiroFilho(Element e) {
+    for (Node n = e.getFirstChild(); n != null; n = n.getNextSibling()) if (n instanceof Element c) return c;
+    return null;
   }
 
   private static String texto(Element e, String tag) {

@@ -48,7 +48,7 @@ documento pela **chave de acesso autorizada** (a do protocolo do XML) com C100.C
 | `DENEGADA_ESCRITURADA` | alerta | Protocolo de denegação e COD_SIT diferente de 04 | Nota denegada vai com COD_SIT 04 e sem valores. |
 | `CREDITO_MAIOR_QUE_DESTACADO` | alerta | Entrada com ICMS escriturado maior que o destacado no XML | O crédito é limitado ao imposto destacado (LC 87/1996, art. 23). |
 | `CREDITO_SIMPLES_ACIMA_PERMITIDO` | alerta | Fornecedor do Simples (CRT 1) com crédito acima do `vCredICMSSN`, ou MEI (CRT 4) com qualquer crédito | Só o crédito informado na nota pode ser aproveitado (LC 123/2006, art. 23). |
-| `DEBITO_MENOR_QUE_DESTACADO` | atencao | Saída própria com ICMS escriturado menor que o destacado | O fisco cobra a diferença pelo valor do XML. |
+| `DEBITO_MENOR_QUE_DESTACADO` | atencao | Saída própria com ICMS escriturado menor que o destacado | O fisco cobra a diferença pelo valor do XML. Cada ocorrência traz `ufDestino` e `porCfop` (CFOP, CST no XML × CST no C190, ICMS de cada lado): CST 00 na nota e 060 na EFD em 6403/6404 indica C190 montado pelo cadastro do ERP. |
 | `VALOR_DIVERGENTE_DO_XML` | atencao | VL_DOC diferente de vNF / vTPrest | Digitação ou importação errada. |
 | `OPERACAO_INVERTIDA` | alerta | Nota própria com IND_OPER diferente do tpNF do XML | Entrada lançada como saída (ou o contrário) inverte débito e crédito. |
 | `CHAVE_DE_TERCEIRO` | alerta | NF-e escriturada em que o CNPJ da empresa não é emitente nem destinatário | Crédito de nota de outra empresa é glosado. |

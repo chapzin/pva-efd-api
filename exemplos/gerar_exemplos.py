@@ -115,7 +115,7 @@ def montar(icms_c190='180,00', compra=False):
     return ''.join('|' + '|'.join(r) + '|\r\n' for r in linhas)
 
 
-def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00'):
+def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop='5102'):
     icms = (f'<ICMSSN101><orig>0</orig><CSOSN>101</CSOSN><pCredSN>1.00</pCredSN><vCredICMSSN>{v_cred_sn}</vCredICMSSN>'
             '</ICMSSN101>' if crt == '1' else
             f'<ICMS00><orig>0</orig><CST>00</CST><modBC>3</modBC><vBC>{v_nf}</vBC><pICMS>18.00</pICMS>'
@@ -125,7 +125,7 @@ def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00'):
             f'<ide><cUF>23</cUF><mod>55</mod><serie>1</serie><nNF>{int(chave[25:34])}</nNF><dhEmi>{dia}T10:00:00-03:00</dhEmi>'
             f'<tpNF>{tp_nf}</tpNF></ide><emit><CNPJ>{emit}</CNPJ><xNome>EMITENTE FICTICIO</xNome><CRT>{crt}</CRT></emit>'
             f'<dest><CNPJ>{dest}</CNPJ><xNome>DESTINATARIO FICTICIO</xNome></dest>'
-            f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><vProd>{v_nf}</vProd></prod>'
+            f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><CFOP>{cfop}</CFOP><vProd>{v_nf}</vProd></prod>'
             f'<imposto><ICMS>{icms}</ICMS></imposto></det>'
             f'<total><ICMSTot><vBC>{v_icms and v_nf}</vBC><vICMS>{v_icms}</vICMS><vNF>{v_nf}</vNF></ICMSTot></total>'
             '</infNFe></NFe><protNFe versao="4.00"><infProt><chNFe>' + chave + '</chNFe><cStat>100</cStat>'

@@ -56,6 +56,19 @@ rm -rf "$DIR"
 echo "$r" | grep -q CHAVE_NAO_AUTORIZADA_ESCRITURADA || { echo "FALHOU (cruzar, chave do protocolo): $r"; exit 1; }
 echo "ok: /cruzar casa pela chave do protocolo e aponta a EFD que usou o Id do XML regerado"
 
+# Saída própria com ST no cadastro do ERP: a nota tributou 180,00 (CST 00), a EFD debitou zero (CST 060).
+DIR="$(mktemp -d)"
+cp "$AQUI"/exemplos/xml-malha/*.xml "$DIR"/
+sed -e "s#|$PROPRIA|15012025|15012025|1000,00|0|0,00|0,00|1000,00|9|0,00|0,00|0,00|1000,00|180,00|#|$PROPRIA|15012025|15012025|1000,00|0|0,00|0,00|1000,00|9|0,00|0,00|0,00|0,00|0,00|#" \
+  -e 's#^|C190|000|5102|18,00|1000,00|1000,00|180,00|#|C190|060|5102|0,00|1000,00|0,00|0,00|#' \
+  "$AQUI/exemplos/efd-exemplo-malha.txt" > "$DIR/efd.txt"
+(cd "$DIR" && zip -qj malha.zip efd.txt ./*.xml)
+r=$(enviar cruzar "$DIR/malha.zip")
+rm -rf "$DIR"
+echo "$r" | grep -q DEBITO_MENOR_QUE_DESTACADO && echo "$r" | grep -q '"cstXml":"00","cstEfd":"060"' \
+  || { echo "FALHOU (cruzar, débito menor por CFOP): $r"; exit 1; }
+echo "ok: /cruzar aponta débito menor que o destacado e compara CFOP a CFOP com o C190"
+
 curl -sf "$URL/mensagens/MSG_VL_ICMS_ANALIT" | grep -q 'VL_ICMS' || { echo "FALHOU (mensagens)"; exit 1; }
 curl -sf "$URL/tabelas/CFOP?codigo=1556" | grep -q 'uso ou consumo' || { echo "FALHOU (tabelas)"; exit 1; }
 echo "ok: /mensagens e /tabelas"
