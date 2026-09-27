@@ -15,6 +15,8 @@ import br.gov.serpro.vepxml.nucleo.entidade.Campo;
 import br.gov.serpro.vepxml.nucleo.entidade.Registro;
 import br.gov.serpro.vepxml.persistencia.dao.registro.IRegistroDAO;
 import br.gov.serpro.vepxml.persistencia.iterador.IIteradorRegistro;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -133,46 +135,92 @@ final class Edicao {
   }
 
   // O gerador de analíticos do PVA soma só BC, ICMS, ST e IPI por CST/CFOP/alíquota e deixa o VL_OPR do C190 vazio.
-  // Completa com a regra do Guia Prático sobre os itens: VL_ITEM - VL_DESC + VL_ICMS_ST + VL_IPI. Frete, seguro e
-  // outras despesas ficam no C100 sem rateio por item, então esses documentos vão para conferência.
+  // Completa com a regra do Guia Prático sobre os itens (VL_ITEM - VL_DESC + VL_ICMS_ST + VL_IPI) mais o frete, o
+  // seguro e as outras despesas do C100, que o C170 não tem: rateados pelo VL_ITEM de cada grupo, com a sobra dos
+  // centavos no grupo de maior peso para a soma fechar com o documento.
   static Map<String, Object> completarVlOpr(EdicaoEscrituracao ed) throws Exception {
     IRegistroDAO dao = ed.getPersistencia().getRegistroDAO();
     MetadadosRegistro m = meta(ed.getDescritor(), "C190");
-    String sql = "SELECT R.ID, SUM(COALESCE(I.VL_ITEM,0)-COALESCE(I.VL_DESC,0)+COALESCE(I.VL_ICMS_ST,0)"
-        + "+COALESCE(I.VL_IPI,0)) AS VL, MAX(COALESCE(C.VL_FRT,0)+COALESCE(C.VL_SEG,0)+COALESCE(C.VL_OUT_DA,0)) AS DESP,"
-        + " MAX(C.ID) AS C100, COUNT(I.ID) AS N FROM reg_c190 R JOIN reg_c100 C ON C.ID=R.ID_PAI LEFT JOIN reg_c170 I ON I.ID_PAI=C.ID"
+    String sql = "SELECT R.ID, R.ID_PAI, R.CST_ICMS, COALESCE(R.VL_BC_ICMS,0) AS BC,"
+        + " SUM(COALESCE(I.VL_ITEM,0)-COALESCE(I.VL_DESC,0)) AS MERC, SUM(COALESCE(I.VL_ITEM,0)-COALESCE(I.VL_DESC,0)+COALESCE(I.VL_ICMS_ST,0)"
+        + "+COALESCE(I.VL_IPI,0)) AS VL, SUM(COALESCE(I.VL_ITEM,0)) AS PESO,"
+        + " MAX(COALESCE(C.VL_FRT,0)+COALESCE(C.VL_SEG,0)+COALESCE(C.VL_OUT_DA,0)) AS DESP, COUNT(I.ID) AS N"
+        + " FROM reg_c190 R JOIN reg_c100 C ON C.ID=R.ID_PAI LEFT JOIN reg_c170 I ON I.ID_PAI=C.ID"
         + " AND I.CST_ICMS=R.CST_ICMS AND I.CFOP=R.CFOP AND I.ALIQ_ICMS<=>R.ALIQ_ICMS"
-        + " WHERE R.VL_OPR IS NULL GROUP BY R.ID";
-    Map<Long, java.math.BigDecimal> valores = new LinkedHashMap<>();
+        + " WHERE R.VL_OPR IS NULL GROUP BY R.ID, R.ID_PAI ORDER BY R.ID_PAI, R.ID";
+    record Grupo(long id, BigDecimal vl, BigDecimal peso, BigDecimal merc, BigDecimal bc, String cst) {}
+    Map<Long, List<Grupo>> porDoc = new LinkedHashMap<>();
+    Map<Long, BigDecimal> desp = new LinkedHashMap<>();
     List<Long> semItens = new ArrayList<>();
-    java.util.Set<Long> comDespesa = new java.util.TreeSet<>();
     try (java.sql.ResultSet rs = ed.getPersistencia().executarComandoSql(sql)) {
       while (rs.next()) {
-        long id = rs.getLong("ID");
-        java.math.BigDecimal desp = rs.getBigDecimal("DESP");
         if (rs.getLong("N") == 0) {
-          semItens.add(id);
+          semItens.add(rs.getLong("ID"));
           continue;
         }
-        valores.put(id, rs.getBigDecimal("VL"));
-        if (desp != null && desp.signum() != 0) comDespesa.add(rs.getLong("C100"));
+        long doc = rs.getLong("ID_PAI");
+        porDoc.computeIfAbsent(doc, k -> new ArrayList<>()).add(new Grupo(rs.getLong("ID"), rs.getBigDecimal("VL"),
+            rs.getBigDecimal("PESO"), rs.getBigDecimal("MERC"), rs.getBigDecimal("BC"), rs.getString("CST_ICMS")));
+        desp.put(doc, rs.getBigDecimal("DESP"));
       }
     }
-    for (Map.Entry<Long, java.math.BigDecimal> e : valores.entrySet()) {
-      Registro r = ler(dao, m, e.getKey());
-      r.getCampo("VL_OPR").setValor(e.getValue().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString().replace('.', ','));
-      r.setAlterado(true);
-      dao.atualizar(r);
+    int preenchidos = 0;
+    List<Long> rateados = new ArrayList<>();
+    List<Long> comReducao = new ArrayList<>();
+    for (Map.Entry<Long, List<Grupo>> e : porDoc.entrySet()) {
+      List<Grupo> gs = e.getValue();
+      BigDecimal total = desp.get(e.getKey()).setScale(2, RoundingMode.HALF_UP);
+      BigDecimal pesoTotal = BigDecimal.ZERO;
+      for (Grupo g : gs) pesoTotal = pesoTotal.add(g.peso());
+      Map<Long, BigDecimal> parte = new LinkedHashMap<>();
+      if (total.signum() != 0) {
+        rateados.add(e.getKey());
+        Grupo maior = gs.get(0);
+        BigDecimal soma = BigDecimal.ZERO;
+        for (Grupo g : gs) {
+          BigDecimal p = pesoTotal.signum() == 0 ? BigDecimal.ZERO
+              : total.multiply(g.peso()).divide(pesoTotal, 2, RoundingMode.HALF_UP);
+          parte.put(g.id(), p);
+          soma = soma.add(p);
+          if (g.peso().compareTo(maior.peso()) > 0) maior = g;
+        }
+        parte.merge(maior.id(), total.subtract(soma), BigDecimal::add);
+      }
+      for (Grupo g : gs) {
+        BigDecimal rateio = parte.getOrDefault(g.id(), BigDecimal.ZERO);
+        Registro r = ler(dao, m, g.id());
+        r.getCampo("VL_OPR").setValor(valor(g.vl().add(rateio)));
+        // Soma de itens sem o campo sai vazia do gerador; o C190 exige o valor, e zero é o que os itens dizem.
+        for (String c : List.of("VL_BC_ICMS", "VL_ICMS", "VL_BC_ICMS_ST", "VL_ICMS_ST", "VL_IPI")) {
+          if (r.getCampo(c).getValor() == null || r.getCampo(c).getValor().isBlank()) r.getCampo(c).setValor("0,00");
+        }
+        // VL_RED_BC: o gerador não calcula. Só há redução nos CST x20 e x70: o que a operação tem além da base.
+        String cst = g.cst() == null ? "" : g.cst();
+        BigDecimal red = BigDecimal.ZERO;
+        if (cst.endsWith("20") || cst.endsWith("70")) {
+          red = g.merc().add(rateio).subtract(g.bc()).max(BigDecimal.ZERO);
+          if (red.signum() != 0) comReducao.add(g.id());
+        }
+        r.getCampo("VL_RED_BC").setValor(valor(red));
+        r.setAlterado(true);
+        dao.atualizar(r);
+        preenchidos++;
+      }
     }
-    Map<String, Object> out = Json.obj("c190Preenchidos", valores.size(),
-        "regra", "VL_OPR = soma dos C170 do grupo (VL_ITEM - VL_DESC + VL_ICMS_ST + VL_IPI)");
-    if (!comDespesa.isEmpty()) {
-      out.put("conferirC100ComFreteSeguroOutras", comDespesa);
-      out.put("nota", "esses C100 têm VL_FRT/VL_SEG/VL_OUT_DA, que entram no VL_OPR do C190 e não foram rateados:"
-          + " ajuste o VL_OPR com efd_editar");
+    Map<String, Object> out = Json.obj("c190Preenchidos", preenchidos,
+        "regra", "VL_OPR = soma dos C170 do grupo (VL_ITEM - VL_DESC + VL_ICMS_ST + VL_IPI) + frete, seguro e outras"
+            + " despesas do C100 rateados pelo VL_ITEM; campos de valor vazios viram 0,00");
+    if (!rateados.isEmpty()) out.put("c100ComDespesasRateadas", rateados);
+    if (!comReducao.isEmpty()) {
+      out.put("c190ComVlRedBcCalculado", comReducao);
+      out.put("nota", "VL_RED_BC dos CST x20/x70 = VL_ITEM - VL_DESC + despesas rateadas - VL_BC_ICMS; confira contra a NF-e");
     }
     if (!semItens.isEmpty()) out.put("c190SemItensComVlOprVazio", semItens);
     return out;
+  }
+
+  static String valor(BigDecimal v) {
+    return v.setScale(2, RoundingMode.HALF_UP).toPlainString().replace('.', ',');
   }
 
   static Map<String, Object> operar(IRegistroDAO dao, DescritorEscrituracao d, Map<?, ?> op) throws Exception {

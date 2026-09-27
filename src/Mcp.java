@@ -259,8 +259,8 @@ final class Mcp {
           + " exclui registros (excluir leva os filhos junto: C100 apaga C170/C190). Os IDs e ID_PAI vêm do efd_consultar. Valores no"
           + " formato do arquivo (1000,00; datas ddmmaaaa). A lista inteira é conferida antes de gravar (registro, ID, pai e campos):"
           + " se uma operação é inválida, nada é gravado. Opcionalmente refaz os registros analíticos (C190, C590, D190...) e a"
-          + " apuração (E110, E210...) com o gerador do PVA; o VL_OPR do C190, que o gerador deixa vazio, é completado pelos"
-          + " C170. Depois use efd_gerar_arquivo para exportar e revalidar.",
+          + " apuração (E110, E210...) com o gerador do PVA; VL_OPR e VL_RED_BC do C190, que o gerador deixa vazios, são"
+          + " completados pelos C170 com frete/seguro/outras do C100 rateados. Depois use efd_gerar_arquivo para exportar e revalidar.",
           props("sessao", prop("string", "Id devolvido por efd_abrir."),
               "operacoes", Json.obj("type", "array", "description", "Lista de {acao: alterar|incluir|excluir, registro: \"C170\","
                   + " id: ID do registro (alterar/excluir), pai: ID do registro pai (incluir), campos: {CAMPO: valor}}.",

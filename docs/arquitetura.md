@@ -125,9 +125,9 @@ mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do
   `ControleEditarEscrituracao.configurarSessaoEdicaoEscrituracao`. No PVA sem tela o Guice não tem binding para
   `IControleEditarEscrituracao`, então a classe é instanciada direto (o método não usa estado dela).
 - O gerador de analíticos usa a consulta `CALCULA_..._REGISTRO_ANALITICO_NO_REGISTRO_ITEM_C170` do
-  `fiscalpva-dominio.jar`, que soma só BC, ICMS, ST e IPI: o `VL_OPR` do C190 sai vazio. `Edicao.completarVlOpr`
-  completa com VL_ITEM − VL_DESC + VL_ICMS_ST + VL_IPI dos C170 do mesmo grupo e aponta os C100 com frete, seguro ou
-  outras despesas, que o C190 também soma e o C170 não rateia.
+  `fiscalpva-dominio.jar`, que soma só BC, ICMS, ST e IPI: `VL_OPR` e `VL_RED_BC` saem vazios, e as somas de itens
+  sem o campo também. `Edicao.completarVlOpr` completa: VL_OPR pelos C170 do grupo + frete/seguro/outras do C100
+  rateados pelo VL_ITEM (sobra dos centavos no grupo de maior peso), VL_RED_BC nos CST x20/x70 e zero nos vazios.
 - Depois da edição a escrituração vai para o estado de edição, como na tela
   (`UtilEscrituracao.alterarEstadoDoObjetoEscrituracaoParaEdicao` + `getDaoEscrituracaoFiscal().atualizar`).
 

@@ -84,10 +84,15 @@ O fluxo de uma correção:
      lista já apaga). Se uma operação é inválida, nada é gravado. Um erro do próprio PVA no meio da gravação deixa as
      operações anteriores gravadas; a resposta diz quantas.
    - `excluir` leva os filhos: um C100 apaga os C170 e C190 dele.
-   - `recalcular_analiticos` refaz C190, C590, D190... a partir dos itens. O gerador do PVA não calcula o `VL_OPR`
-     do C190; o servidor completa com VL_ITEM − VL_DESC + VL_ICMS_ST + VL_IPI dos C170 do grupo e lista em
-     `vlOprC190.conferirC100ComFreteSeguroOutras` os documentos com frete, seguro ou outras despesas, que entram no
-     `VL_OPR` e não têm rateio por item. C190 de documento sem C170 fica como estava.
+   - `recalcular_analiticos` refaz C190, C590, D190... a partir dos itens. O gerador do PVA soma só BC, ICMS, ST e
+     IPI; o servidor completa o C190 (resumo em `vlOprC190`):
+     - `VL_OPR` = VL_ITEM − VL_DESC + VL_ICMS_ST + VL_IPI dos C170 do grupo + frete, seguro e outras despesas do
+       C100 rateados pelo VL_ITEM de cada grupo (a sobra dos centavos vai para o grupo de maior peso, então a soma
+       fecha com o documento). Os C100 rateados vêm em `c100ComDespesasRateadas`.
+     - `VL_RED_BC` = VL_ITEM − VL_DESC + despesas rateadas − VL_BC_ICMS nos CST x20 e x70; zero nos demais. Os
+       calculados vêm em `c190ComVlRedBcCalculado` para conferir contra a NF-e.
+     - Campos de valor que o gerador deixou vazios (itens sem ST ou IPI informados) viram `0,00`.
+     - C190 de documento sem C170 fica como estava.
    - Falha do gerador não desfaz a edição: vem em `falhaRecalculo`.
 3. `efd_gerar_arquivo` exporta pelo PVA (0990/9900/9999 recontados) para `PVA_SAIDA` e revalida o arquivo na mesma
    sessão: o resumo volta com os erros do arquivo novo. O nome padrão é o do original com `-pva.txt`; um arquivo com

@@ -166,6 +166,20 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
     r=$(ferramenta efd_consultar "{\"sessao\":\"$s\",\"sql\":\"SELECT VL_ICMS_RECOLHER R FROM reg_e110\"}")
     echo "$r" | grep -q 'R\\":\\"120.00' || { echo "FALHOU (mcp E110 após edição): $r"; exit 1; }
     echo "ok: /mcp edita a escrituração, recalcula a apuração, gera o TXT pelo PVA e o revalida sem erros"
+
+    r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-malha.txt"}')
+    m=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
+    r=$(ferramenta efd_editar "{\"sessao\":\"$m\",\"recalcular_analiticos\":true,\"recalcular_apuracao\":true,\"operacoes\":[
+      {\"acao\":\"alterar\",\"registro\":\"C100\",\"id\":2,\"campos\":{\"VL_FRT\":\"10,01\",\"VL_DOC\":\"310,01\",\"VL_MERC\":\"300,00\",\"VL_BC_ICMS\":\"260,00\",\"VL_ICMS\":\"43,20\"}},
+      {\"acao\":\"incluir\",\"registro\":\"C170\",\"pai\":2,\"campos\":{\"NUM_ITEM\":\"2\",\"COD_ITEM\":\"MAT01\",\"QTD\":\"1\",\"UNID\":\"UN\",\"VL_ITEM\":\"100,00\",\"IND_MOV\":\"0\",\"CST_ICMS\":\"020\",\"CFOP\":\"1102\",\"VL_BC_ICMS\":\"60,00\",\"ALIQ_ICMS\":\"12,00\",\"VL_ICMS\":\"7,20\"}},
+      {\"acao\":\"alterar\",\"registro\":\"E116\",\"id\":1,\"campos\":{\"VL_OR\":\"136,80\"}}]}")
+    echo "$r" | grep -q 'c100ComDespesasRateadas' || { echo "FALHOU (mcp recalcular_analiticos): $r"; exit 1; }
+    r=$(ferramenta efd_gerar_arquivo "{\"sessao\":\"$m\"}")
+    echo "$r" | grep -q 'GERADA_PARA_ENTREGA' || { echo "FALHOU (mcp analíticos gerados): $r"; exit 1; }
+    r=$(ferramenta efd_consultar "{\"sessao\":\"$m\",\"sql\":\"SELECT GROUP_CONCAT(CONCAT(VL_OPR,'/',VL_RED_BC) ORDER BY CFOP) V FROM reg_c190 WHERE ID_PAI=(SELECT MAX(ID) FROM reg_c100)\"}")
+    echo "$r" | grep -q '103.34/43.34,206.67/0.00' || { echo "FALHOU (mcp VL_OPR/VL_RED_BC do C190): $r"; exit 1; }
+    ferramenta efd_fechar "{\"sessao\":\"$m\"}" >/dev/null
+    echo "ok: /mcp refaz os C190 pelo gerador do PVA, rateia o frete no VL_OPR e calcula o VL_RED_BC do CST 020"
   fi
   ferramenta efd_fechar "{\"sessao\":\"$s\"}" >/dev/null
 else
