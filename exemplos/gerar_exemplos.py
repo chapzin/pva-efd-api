@@ -167,7 +167,7 @@ def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop
             f'<ide><cUF>23</cUF><cNF>{chave[35:43]}</cNF><mod>55</mod><serie>1</serie><nNF>{int(chave[25:34])}</nNF>'
             f'<dhEmi>{dia}T10:00:00-03:00</dhEmi><tpNF>{tp_nf}</tpNF><tpEmis>{chave[34]}</tpEmis><cDV>{chave[43]}</cDV></ide><emit><CNPJ>{emit}</CNPJ><xNome>EMITENTE FICTICIO</xNome><CRT>{crt}</CRT></emit>'
             f'<dest><CNPJ>{dest}</CNPJ><xNome>DESTINATARIO FICTICIO</xNome></dest>'
-            f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><CFOP>{cfop}</CFOP><vProd>{v_nf}</vProd></prod>'
+            f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><CFOP>{cfop}</CFOP><uCom>UN</uCom><qCom>1.0000</qCom><vUnCom>{v_nf}</vUnCom><vProd>{v_nf}</vProd></prod>'
             f'<imposto><ICMS>{icms}</ICMS></imposto></det>'
             f'<total><ICMSTot><vBC>{v_icms and v_nf}</vBC><vICMS>{v_icms}</vICMS><vNF>{v_nf}</vNF></ICMSTot></total>'
             '</infNFe>' + ASSINATURA + '</NFe><protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><chNFe>' + chave + '</chNFe>'

@@ -126,7 +126,7 @@ echo "$r" | grep -q '"serverInfo":{"name":"pva-efd-api"' || { echo "FALHOU (mcp 
 r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$URL/mcp")
 [ "$r" = 202 ] || { echo "FALHOU (mcp notificação): HTTP $r"; exit 1; }
 r=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
-for t in efd_abrir efd_detalhes efd_consultar efd_livro efd_editar efd_gerar_arquivo efd_fechar efd_validar_pasta; do
+for t in efd_abrir efd_detalhes efd_consultar efd_livro efd_editar efd_propor_nfe efd_gerar_arquivo efd_fechar efd_validar_pasta; do
   echo "$r" | grep -q "\"$t\"" || { echo "FALHOU (mcp tools/list, $t): $r"; exit 1; }
 done
 r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Origin: https://exemplo.com' --data '{}' "$URL/mcp")
@@ -194,6 +194,26 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
     echo "$r" | grep -q '| Erros | 0 | 0 |' || { echo "FALHOU (mcp glosa de uso e consumo): $r"; exit 1; }
     ferramenta efd_fechar "{\"sessao\":\"$g\"}" >/dev/null
     echo "ok: /mcp glosa o crédito de uso e consumo no item e alinha os totais do C100 aos C190 refeitos"
+
+    if command -v python3 >/dev/null; then
+      r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-malha.txt","pasta_xml":"xml-malha"}')
+      x=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
+      ch=23250177888999000181550010000004571876543228
+      r=$(ferramenta efd_propor_nfe "{\"sessao\":\"$x\",\"chave\":\"$ch\"}")
+      echo "$r" | grep -q '| C170 | 1 | COD_ITEM |' || { echo "FALHOU (mcp proposta sem de-para vira pendência): $r"; exit 1; }
+      r=$(ferramenta efd_propor_nfe "{\"sessao\":\"$x\",\"chave\":\"$ch\",\"de_para\":{\"1\":\"MAT01\"},\"dt_e_s\":\"22012025\"}")
+      echo "$r" | grep -q '| 1 | C170 | @0 | item 1 MAT01 | 1556 | 090 |' || { echo "FALHOU (mcp efd_propor_nfe): $r"; exit 1; }
+      ops=$(echo "$r" | python3 -c 'import json,sys; print(json.dumps(json.loads(json.load(sys.stdin)["result"]["content"][0]["text"])["operacoes"]))')
+      r=$(ferramenta efd_editar "{\"sessao\":\"$x\",\"recalcular_analiticos\":true,\"recalcular_apuracao\":true,\"operacoes\":$ops}")
+      echo "$r" | grep -q '| 2 | incluir | C170 | 2 (pai 3) | COD_ITEM |  | MAT01 |' || { echo "FALHOU (mcp pai @N): $r"; exit 1; }
+      r=$(ferramenta efd_gerar_arquivo "{\"sessao\":\"$x\"}")
+      echo "$r" | grep -q '| Erros | 0 | 0 |' || { echo "FALHOU (mcp NF-e escriturada pela proposta): $r"; exit 1; }
+      echo "$r" | grep -q '| XML_NAO_ESCRITURADO | alerta | 1 | 0 | 350,00 |  | resolvido |' || { echo "FALHOU (mcp achados antes × depois): $r"; exit 1; }
+      ferramenta efd_fechar "{\"sessao\":\"$x\"}" >/dev/null
+      echo "ok: /mcp propõe a NF-e fora da EFD a partir do XML (de-para, uso e consumo sem crédito), escritura com pai @N e resolve o achado"
+    else
+      echo "pulado: efd_propor_nfe → efd_editar (precisa de python3 para repassar as operações)"
+    fi
   fi
   ferramenta efd_fechar "{\"sessao\":\"$s\"}" >/dev/null
 else

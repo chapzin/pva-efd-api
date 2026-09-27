@@ -14,9 +14,12 @@ import java.nio.file.PathMatcher;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -271,6 +274,16 @@ final class Mcp {
               "recalcular_analiticos", prop("boolean", "Refaz todos os registros analíticos a partir dos itens (padrão false)."),
               "recalcular_apuracao", prop("boolean", "Refaz os registros de apuração do bloco E (padrão false).")),
           List.of("sessao", "operacoes")),
+      new Ferramenta("efd_propor_nfe", "Monta, a partir do XML da pasta_xml da sessão, as operações do efd_editar que escrituram uma"
+          + " NF-e ausente da EFD (achado XML_NAO_ESCRITURADO): 0150 do participante se faltar, C100 e C170 (entrada de terceiro) ou"
+          + " C190 (emissão própria), com o pai do item apontando para o C100 da mesma lista (\"@N\"). Não grava nada. O COD_ITEM da"
+          + " entrada vem do de_para (código da empresa no 0200, nunca o cProd do fornecedor); CFOP de entrada, CST e crédito do"
+          + " Simples saem por regra e voltam como pendências a confirmar. Com pronto=true, passe `operacoes` ao efd_editar.",
+          props("sessao", prop("string", "Id devolvido por efd_abrir (aberta com pasta_xml)."),
+              "chave", prop("string", "Chave de 44 dígitos da NF-e."),
+              "de_para", Json.obj("type", "object", "description", "cProd do XML → COD_ITEM do 0200 da empresa, ex.: {\"1\": \"MAT01\"}."),
+              "dt_e_s", prop("string", "Data de entrada/saída ddmmaaaa (padrão: emissão, marcada como pendência na entrada).")),
+          List.of("sessao", "chave")),
       new Ferramenta("efd_gerar_arquivo", "Exporta pelo PVA a escrituração da sessão (com as edições) para um TXT em PVA_SAIDA, com"
           + " 0990/9900/9999 recontados, e revalida esse arquivo na mesma sessão: o resumo volta com os erros novos. O TXT sai sem"
           + " assinatura; a entrega à Receita é com o contribuinte.",
@@ -316,6 +329,7 @@ final class Mcp {
         case "efd_livro" -> livro(a);
         case "efd_editar" -> editar(a);
         case "efd_gerar_arquivo" -> gerarArquivo(a);
+        case "efd_propor_nfe" -> proporNfe(a);
         case "efd_validar_pasta" -> validarPasta(a);
         case "tabela_sped" -> tabela(a);
         case "explicar_mensagem" -> explicar(a);
@@ -838,12 +852,71 @@ final class Mcp {
     Tabela te = Tabela.com("Mensagem", "Tipo", "Antes", "Depois", "Situação");
     for (Map.Entry<String, Object[]> e : por.entrySet()) {
       long x = ((Number) e.getValue()[1]).longValue(), y = ((Number) e.getValue()[2]).longValue();
-      te.linha(e.getKey(), e.getValue()[0], x, y, y == 0 ? "resolvido" : x == 0 ? "novo" : y < x ? "diminuiu" : y > x ? "aumentou" : "igual");
+      te.linha(e.getKey(), e.getValue()[0], x, y, situacao(x, y));
     }
-    return Tabela.juntar("Resultado da correção (arquivo original × arquivo gerado)", res, "Erros por mensagem", te);
+    Map<String, Object[]> ach = new LinkedHashMap<>();
+    for (Map<String, Object> x : achados(antes)) ach.put(x.get("codigo") + "", new Object[] {x.get("nivel"), x, null});
+    for (Map<String, Object> x : achados(depois)) ach.computeIfAbsent(x.get("codigo") + "", k -> new Object[] {x.get("nivel"), null, null})[2] = x;
+    Tabela ta = Tabela.com("Achado", "Nível", "Qtde antes", "Qtde depois", "Valor antes", "Valor depois", "Situação");
+    for (Map.Entry<String, Object[]> e : ach.entrySet()) {
+      Map<String, Object> x = (Map<String, Object>) e.getValue()[1], y = (Map<String, Object>) e.getValue()[2];
+      long qx = x == null ? 0 : ((Number) x.get("quantidade")).longValue(), qy = y == null ? 0 : ((Number) y.get("quantidade")).longValue();
+      ta.linha(e.getKey(), e.getValue()[0], qx, qy, x == null ? "" : x.get("valorTotal"), y == null ? "" : y.get("valorTotal"),
+          situacao(qx, qy));
+    }
+    return Tabela.juntar("Resultado da correção (arquivo original × arquivo gerado)", res, "Erros por mensagem", te,
+        "Achados de malha e do cruzamento EFD × XML", ta);
+  }
+
+  static String situacao(long antes, long depois) {
+    return depois == 0 ? "resolvido" : antes == 0 ? "novo" : depois < antes ? "diminuiu" : depois > antes ? "aumentou" : "igual";
+  }
+
+  // Verificações de malha e achados do cruzamento de um resumo compacto, numa lista só.
+  @SuppressWarnings("unchecked")
+  static List<Map<String, Object>> achados(Map<String, Object> resumo) {
+    List<Map<String, Object>> out = new ArrayList<>();
+    if (resumo.get("verificacoes") instanceof List<?> l) l.forEach(o -> out.add((Map<String, Object>) o));
+    if (resumo.get("cruzamento") instanceof Map<?, ?> c && c.get("achados") instanceof List<?> l) l.forEach(o -> out.add((Map<String, Object>) o));
+    return out;
   }
 
   @SuppressWarnings("unchecked")
+  static Map<String, Object> proporNfe(Map<?, ?> a) throws Exception {
+    Sessao s = sessao(a);
+    String chave = Cruzamento.chaveDe(txt(a, "chave"));
+    if (chave == null || chave.length() != 44) throw new IllegalArgumentException("chave precisa de 44 dígitos");
+    if (s.pastaXml == null) throw new IllegalArgumentException("a sessão foi aberta sem pasta_xml: abra com efd_abrir pasta_xml");
+    Path pasta = resolver(s.pastaXml);
+    Cruzamento.Doc d = lerXmls(pasta).docs.get(chave);
+    if (d == null || !"NF-e".equals(d.tipo)) {
+      throw new IllegalArgumentException("NF-e " + chave + " não está na pasta_xml da sessão");
+    }
+    org.w3c.dom.Element inf = Cruzamento.primeiro(Cruzamento.parser().parse(pasta.resolve(d.arquivo).toFile()).getDocumentElement(),
+        "infNFe");
+    Proposta.Contexto ctx = comBanco(s, per -> {
+      Map<String, String> part = new HashMap<>();
+      for (Map<String, String> r : Verificacoes.linhas(per, "SELECT COD_PART, CNPJ, CPF FROM reg_0150")) {
+        String doc = r.get("CNPJ") == null || r.get("CNPJ").isBlank() ? r.get("CPF") : r.get("CNPJ");
+        if (doc != null && !doc.isBlank()) part.putIfAbsent(doc.trim(), r.get("COD_PART"));
+      }
+      Map<String, String> itens = new HashMap<>(), tipos = new HashMap<>();
+      for (Map<String, String> r : Verificacoes.linhas(per, "SELECT COD_ITEM, UNID_INV, TIPO_ITEM FROM reg_0200")) {
+        itens.put(r.get("COD_ITEM"), r.get("UNID_INV"));
+        tipos.put(r.get("COD_ITEM"), r.get("TIPO_ITEM"));
+      }
+      Set<String> unid = new HashSet<>();
+      for (Map<String, String> r : Verificacoes.linhas(per, "SELECT UNID FROM reg_0190")) unid.add(r.get("UNID"));
+      return new Proposta.Contexto(Verificacoes.linhas(per, "SELECT CNPJ FROM reg_0000").get(0).get("CNPJ"),
+          Long.parseLong(Verificacoes.linhas(per, "SELECT ID FROM reg_0001").get(0).get("ID")),
+          Long.parseLong(Verificacoes.linhas(per, "SELECT ID FROM reg_c001").get(0).get("ID")), part, itens, tipos, unid,
+          !Verificacoes.linhas(per, "SELECT ID FROM reg_c100 WHERE CHV_NFE = '" + chave + "'").isEmpty());
+    });
+    Map<String, Object> r = Proposta.montar(inf, chave, ctx, a.get("de_para") instanceof Map<?, ?> m ? m : null, txt(a, "dt_e_s"));
+    r.put("sessao", s.id);
+    return r;
+  }
+
   static Map<String, Object> gerarArquivo(Map<?, ?> a) throws Exception {
     Sessao s = sessao(a);
     if (s.esc == null) throw new IllegalArgumentException("o PVA não integrou este arquivo: não há escrituração para exportar");

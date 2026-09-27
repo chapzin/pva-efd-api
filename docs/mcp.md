@@ -37,6 +37,7 @@ pasta montada (`cliente/efd-2025-01.txt`). Qualquer caminho fora dela é recusad
 | `efd_consultar` | `SELECT`, `SHOW TABLES` ou `DESCRIBE <tabela>` no banco da sessão (tabelas `reg_0000`, `reg_c100`, `reg_c190`, `reg_e110`...). Somente leitura, até 2000 linhas. |
 | `efd_livro` | Livros oficiais que o PVA gera da escrituração (menu Relatórios): `apuracao_icms`, `apuracao_st`, `difal`, `apuracao_ipi`, `inventario`, `ciap`, `entradas`, `saidas`, `producao_estoque`, `creditos_fiscais`. Sem `livro` lista os livros e períodos que a escrituração tem. `formato=texto` devolve as páginas em linhas (paginado); `formato=pdf` grava o PDF em `PVA_SAIDA`. `detalhar=true` lista entradas e saídas nota a nota. |
 | `efd_editar` | Altera campos, inclui ou exclui registros da escrituração da sessão pelo editor do PVA (IDs do `efd_consultar`). Opcionalmente refaz os analíticos (`recalcular_analiticos`) e a apuração do bloco E (`recalcular_apuracao`) com o gerador do PVA. |
+| `efd_propor_nfe` | Monta, do XML da `pasta_xml` da sessão, as operações do `efd_editar` que escrituram uma NF-e ausente da EFD (achado `XML_NAO_ESCRITURADO`). Não grava. |
 | `efd_gerar_arquivo` | Exporta pelo PVA a escrituração editada para um TXT em `PVA_SAIDA` e o revalida na mesma sessão. |
 | `efd_fechar` | Fecha a sessão e apaga a escrituração do banco do PVA. |
 | `efd_validar_pasta` | Valida em lote as EFD de uma pasta, sem sessão: estado, total de erros e as 3 mensagens mais frequentes por arquivo. Até 50 por chamada; continue com `a_partir_de`. |
@@ -55,7 +56,8 @@ contas.
 | `efd_detalhes` | Erros linha a linha (linha, registro, campo, valor, esperado), lista de achados ou as ocorrências de um achado. |
 | `efd_consultar` | As linhas do SELECT. |
 | `efd_editar` | Correções gravadas (campo, antes, depois), os C190 refeitos (VL_OPR, despesas rateadas, VL_RED_BC) e os totais do C100 alinhados. |
-| `efd_gerar_arquivo` | Arquivo original × arquivo gerado: estado, erros e totais do E110, e cada mensagem do PVA como resolvida, nova, menor, maior ou igual. |
+| `efd_propor_nfe` | Proposta de escrituração (registro, pai, CFOP, CST, valor, BC, ICMS, regra aplicada) e pendências antes de gravar. |
+| `efd_gerar_arquivo` | Arquivo original × arquivo gerado: estado, erros e totais do E110, cada mensagem do PVA e cada achado de malha/cruzamento como resolvido, novo, menor, maior ou igual. |
 | `efd_validar_pasta` | Um arquivo por linha: estado, válido, erros e principais mensagens. |
 
 Até 50 linhas por tabela (o resto vem avisado para paginar); células com mais de 90 caracteres são cortadas. Valores
@@ -103,6 +105,8 @@ O fluxo de uma correção:
      lista já apaga). Se uma operação é inválida, nada é gravado. Um erro do próprio PVA no meio da gravação deixa as
      operações anteriores gravadas; a resposta diz quantas.
    - `excluir` leva os filhos: um C100 apaga os C170 e C190 dele.
+   - No `incluir`, `"pai": "@N"` aponta para o registro incluído pela operação N (a partir de 0) da mesma lista: um
+     C100 novo e os C170 dele vão num lote só. O `@N` tem de ser um `incluir` anterior do registro pai certo.
    - `recalcular_analiticos` refaz C190, C590, D190... a partir dos itens. O gerador do PVA soma só BC, ICMS, ST e
      IPI; o servidor completa o C190 (resumo em `vlOprC190`):
      - `VL_OPR` = VL_ITEM − VL_DESC + VL_ICMS_ST + VL_IPI dos C170 do grupo + frete, seguro e outras despesas do
@@ -119,6 +123,23 @@ O fluxo de uma correção:
 3. `efd_gerar_arquivo` exporta pelo PVA (0990/9900/9999 recontados) para `PVA_SAIDA` e revalida o arquivo na mesma
    sessão: o resumo volta com os erros do arquivo novo. O nome padrão é o do original com `-pva.txt`; um arquivo com
    o mesmo nome é substituído.
+
+### NF-e fora da EFD
+
+`efd_propor_nfe` (sessão aberta com `pasta_xml`) lê o XML da chave e devolve `operacoes` prontas para o
+`efd_editar`, `pendencias` e `pronto`:
+
+- 0150 do participante quando o CNPJ não está no arquivo; C100 com totais pela soma dos itens.
+- Entrada de terceiro: C170 por item, pai `@N` no C100. O `COD_ITEM` vem só do `de_para` (`{"cProd": "COD_ITEM"}`,
+  código da empresa no 0200); sem ele, ou fora do 0200, é pendência que bloqueia. Nunca usa o cProd do fornecedor.
+- CFOP de entrada por regra (5→1, 6→2, x404/x405→x403). Pelo `TIPO_ITEM` do 0200: 07 vira x556 e 08 vira x551,
+  sem crédito no item. Simples com `vCredICMSSN` vira CST x90 com o crédito do XML; sem crédito, x90 (ou x60 no
+  CSOSN 500) zerado.
+- Emissão própria: C190 agrupado por CST/CFOP/alíquota, sem C170; chame o `efd_editar` só com
+  `recalcular_apuracao`.
+- `DT_E_S` padrão é a emissão (pendência na entrada); passe `dt_e_s` com a data da entrada.
+
+Depois de gravar, o E116 continua com você, e o `efd_gerar_arquivo` mostra o achado como `resolvido`.
 
 O TXT exportado segue o formato do PVA: zeros decimais à direita somem (`1000` em vez de `1000,00`) e o `COD_PAIS`
 do 0150 perde o zero à esquerda (`1058`). O próprio PVA aceita o arquivo assim. Ele sai sem assinatura; a entrega à

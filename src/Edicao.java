@@ -110,6 +110,7 @@ final class Edicao {
   // Confere a lista inteira antes de gravar: o DAO do PVA grava linha a linha e o rollback não desfaz o que já foi.
   static void conferir(IRegistroDAO dao, DescritorEscrituracao d, List<?> ops) throws Exception {
     java.util.Set<String> excluidos = new java.util.HashSet<>();
+    Map<Integer, String> incluidos = new java.util.HashMap<>();
     for (int i = 0; i < ops.size(); i++) {
       try {
         if (!(ops.get(i) instanceof Map<?, ?> op)) throw new IllegalArgumentException("não é um objeto");
@@ -121,7 +122,16 @@ final class Edicao {
         Map<?, ?> valores = op.get("campos") instanceof Map<?, ?> x ? x : Map.of();
         conferirCampos(m, valores);
         MetadadosRegistro alvo = acao.equals("incluir") ? m.getMetadadosRegistroPai() : m;
+        if (acao.equals("incluir")) incluidos.put(i, m.getId());
         if (alvo == null) continue;
+        if (acao.equals("incluir") && ref(op.get("pai")) != null) {
+          int n = ref(op.get("pai"));
+          if (n >= i || !incluidos.containsKey(n)) throw new IllegalArgumentException("pai @" + n + " tem de ser um incluir anterior da lista");
+          if (!incluidos.get(n).equals(alvo.getId())) {
+            throw new IllegalArgumentException("pai @" + n + " inclui " + incluidos.get(n) + ", mas o pai de " + m.getId() + " é " + alvo.getId());
+          }
+          continue;
+        }
         long id = id(op, acao.equals("incluir") ? "pai" : "id");
         Registro r = ler(dao, alvo, id);
         if (excluidos.contains(alvo.getId() + "#" + id)) {
@@ -270,7 +280,14 @@ final class Edicao {
     return v.setScale(2, RoundingMode.HALF_UP).toPlainString().replace('.', ',');
   }
 
-  static Map<String, Object> operar(IRegistroDAO dao, DescritorEscrituracao d, Map<?, ?> op) throws Exception {
+  // "@N" no pai: o registro incluído pela operação N da mesma lista (C100 novo com os C170 dele numa chamada só).
+  static Integer ref(Object v) {
+    String t = v == null ? "" : String.valueOf(v).trim();
+    return t.matches("@\\d+") ? Integer.valueOf(t.substring(1)) : null;
+  }
+
+  static Map<String, Object> operar(IRegistroDAO dao, DescritorEscrituracao d, Map<?, ?> op, List<Map<String, Object>> feitas)
+      throws Exception {
     String acao = String.valueOf(op.get("acao"));
     MetadadosRegistro m = meta(d, op.get("registro") == null ? null : String.valueOf(op.get("registro")));
     Map<?, ?> valores = op.get("campos") instanceof Map<?, ?> x ? x : Map.of();
@@ -297,7 +314,8 @@ final class Edicao {
         return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "pai", paiExcluido, "linhasRemovidas", n, "era", antes);
       }
       case "incluir" -> {
-        long pai = m.getMetadadosRegistroPai() == null ? 0 : id(op, "pai");
+        Integer n = ref(op.get("pai"));
+        long pai = m.getMetadadosRegistroPai() == null ? 0 : n != null ? ((Number) feitas.get(n).get("id")).longValue() : id(op, "pai");
         if (m.getMetadadosRegistroPai() != null) ler(dao, m.getMetadadosRegistroPai(), pai);
         Registro r = new Registro(0, m);
         List<Campo> cs = new ArrayList<>();
@@ -327,7 +345,7 @@ final class Edicao {
       try {
         for (int i = 0; i < ops.size(); i++) {
           try {
-            feitas.add(operar(dao, d, (Map<?, ?>) ops.get(i)));
+            feitas.add(operar(dao, d, (Map<?, ?>) ops.get(i), feitas));
           } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("operação " + i + ": " + e.getMessage()
                 + (feitas.isEmpty() ? " (nada foi gravado)" : " (as " + feitas.size() + " anteriores ficaram gravadas)"));

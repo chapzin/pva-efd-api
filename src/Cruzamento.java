@@ -539,27 +539,27 @@ final class Cruzamento {
     return m;
   }
 
-  private static String chaveDe(String id) {
+  static String chaveDe(String id) {
     return id == null ? null : id.replaceAll("[^0-9]", "");
   }
 
-  private static Element primeiro(Element e, String tag) {
+  static Element primeiro(Element e, String tag) {
     if (e == null) return null;
     NodeList l = e.getElementsByTagName(tag);
     return l.getLength() == 0 ? null : (Element) l.item(0);
   }
 
-  private static Element primeiroFilho(Element e) {
+  static Element primeiroFilho(Element e) {
     for (Node n = e.getFirstChild(); n != null; n = n.getNextSibling()) if (n instanceof Element c) return c;
     return null;
   }
 
-  private static String texto(Element e, String tag) {
+  static String texto(Element e, String tag) {
     Element x = primeiro(e, tag);
     return x == null ? null : x.getTextContent().trim();
   }
 
-  private static String doc(Element e) {
+  static String doc(Element e) {
     if (e == null) return null;
     for (Node n = e.getFirstChild(); n != null; n = n.getNextSibling()) {
       if (n instanceof Element c && (c.getTagName().equals("CNPJ") || c.getTagName().equals("CPF"))) {
@@ -569,7 +569,7 @@ final class Cruzamento {
     return null;
   }
 
-  private static BigDecimal num(String s) {
+  static BigDecimal num(String s) {
     return s == null || s.isBlank() ? BigDecimal.ZERO : new BigDecimal(s.trim());
   }
 

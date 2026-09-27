@@ -160,7 +160,7 @@ PVA_DADOS=$HOME/auditorias docker compose up -d --build
 claude mcp add --transport http pva http://127.0.0.1:8095/mcp
 ```
 
-O Claude passa a ter `efd_abrir`, `efd_detalhes`, `efd_consultar`, `efd_livro`, `efd_editar`, `efd_gerar_arquivo`,
+O Claude passa a ter `efd_abrir`, `efd_detalhes`, `efd_consultar`, `efd_livro`, `efd_editar`, `efd_propor_nfe`, `efd_gerar_arquivo`,
 `efd_validar_pasta` e outras ferramentas sobre os arquivos de `PVA_DADOS`. `efd_gerar_arquivo` grava o TXT em
 `PVA_SAIDA` (padrão `./saida`). Detalhes em [docs/mcp.md](docs/mcp.md).
 
@@ -184,7 +184,8 @@ make teste
   numa sessão, consulta o banco e fecha; com `PVA_SAIDA` gravável, edita a EFD válida (C100, C190, E116), recalcula a
   apuração, exporta pelo PVA e confere que o arquivo gerado sai `GERADA_PARA_ENTREGA`; na EFD da malha, refaz os C190
   com frete rateado no `VL_OPR` e `VL_RED_BC` do CST 020; e glosa o crédito de uso e consumo no item, com os totais do
-  C100 alinhados aos C190 refeitos, até o arquivo sair sem erros.
+  C100 alinhados aos C190 refeitos, até o arquivo sair sem erros; e escritura a NF-e fora da EFD pela proposta do
+  `efd_propor_nfe` (de-para, pai `@N`) até o achado `XML_NAO_ESCRITURADO` sair como resolvido.
 
 ---
 

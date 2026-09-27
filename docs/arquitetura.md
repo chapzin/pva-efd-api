@@ -130,6 +130,11 @@ mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do
   rateados pelo VL_ITEM (sobra dos centavos no grupo de maior peso), VL_RED_BC nos CST x20/x70 e zero nos vazios.
 - O gerador também não mexe no C100, e o PVA exige C100 = soma dos C190 (`MSG_VL_ICMS_ANALIT`,
   `MSG_VL_BC_ICMS_ANALIT`). `Edicao.alinharC100` iguala os totais só nos C100 pais dos C170/C190 editados.
+- `pai: "@N"` resolve, na gravação, o ID do registro que a operação N da mesma lista incluiu; o `conferir` exige que
+  N seja um `incluir` anterior do registro pai esperado.
+- `Proposta.java` monta a escrituração de uma NF-e a partir do XML (reaproveita o leitor do `Cruzamento`) e do banco
+  da sessão (0000, 0001/C001, 0150, 0190, 0200 e C100 pela chave). Função pura: devolve operações e pendências,
+  não grava.
 - Depois da edição a escrituração vai para o estado de edição, como na tela
   (`UtilEscrituracao.alterarEstadoDoObjetoEscrituracaoParaEdicao` + `getDaoEscrituracaoFiscal().atualizar`).
 
