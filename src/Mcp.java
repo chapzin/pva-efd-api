@@ -198,7 +198,9 @@ final class Mcp {
             + " efd_gerar_arquivo exporta o TXT pelo PVA e revalida; efd_fechar libera a sessão. Arquivos: caminhos dentro da pasta montada no contêiner"
             + (HOST.isEmpty() ? " (relativos a ela)" : " (" + HOST + " no host, ou relativos a ela)")
             + "; arquivos_listar mostra o que está lá. O PVA valida uma escrituração por vez: chamadas esperam na fila."
-            + " Achados de malha são indícios para conferência, não autuação.");
+            + " Achados de malha são indícios para conferência, não autuação. As respostas de análise e de correção trazem"
+            + " `tabela` (Markdown): mostre-a ao usuário como está, a cada achado, resultado e correção, antes de comentar;"
+            + " não refaça as contas nem troque os números.");
   }
 
   // ---------------------------------------------------------------- ferramentas
@@ -296,6 +298,7 @@ final class Mcp {
     return l;
   }
 
+  @SuppressWarnings("unchecked")
   static Map<String, Object> chamar(Map<?, ?> p) {
     String nome = String.valueOf(p.get("name"));
     Map<?, ?> a = p.get("arguments") instanceof Map<?, ?> x ? x : Map.of();
@@ -323,6 +326,11 @@ final class Mcp {
       erro = true;
     }
     String texto = Json.of(r);
+    if (texto.length() > MAX_CARACTERES && r instanceof Map<?, ?> m && m.containsKey("tabela")) {
+      m.remove("tabela");
+      ((Map<String, Object>) m).put("tabelaOmitida", "resposta grande demais para levar a tabela; pagine com por_pagina menor");
+      texto = Json.of(r);
+    }
     if (texto.length() > MAX_CARACTERES) {
       texto = Json.of(Json.obj("erro", "resposta com " + texto.length() + " caracteres; peça menos: por_pagina menor, filtro por"
           + " codigo ou limite menor"));
@@ -591,8 +599,30 @@ final class Mcp {
     }
     if (o.get("mensagens") instanceof List<?> ms && !ms.isEmpty()) r.put("mensagensDoPva", ms.size());
     if (s.pendentes > 0) r.put("edicoesNaoExportadas", s.pendentes);
+    r.put("tabela", tabelaResumo(r, (List<Map<String, Object>>) erros.get("porMensagem")));
     r.put("proximo", "efd_detalhes (erros, verificacoes, achados, resumo) e efd_consultar com sessao=" + s.id + "; efd_fechar no fim");
     return r;
+  }
+
+  @SuppressWarnings("unchecked")
+  static String tabelaResumo(Map<String, Object> r, List<Map<String, Object>> erros) {
+    Map<String, Object> ap = r.get("apuracaoIcms") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+    Map<String, Object> er = (Map<String, Object>) r.get("erros");
+    Tabela res = Tabela.com("Arquivo", "Estado", "Válido", "Erros", "ICMS a recolher", "Saldo credor a transportar")
+        .linha(Path.of(String.valueOf(r.get("arquivo"))).getFileName(), r.get("estado"), Boolean.TRUE.equals(r.get("valido")) ? "sim" : "não",
+            er.get("total"), ap.get("VL_ICMS_RECOLHER"), ap.get("VL_SLD_CREDOR_TRANSPORTAR"));
+    Tabela te = Tabela.com("Tipo", "Mensagem", "Qtde", "O que o PVA diz");
+    for (Map<String, Object> e : erros) te.linha(e.get("tipo"), e.get("codigo"), e.get("quantidade"), e.get("descricao"));
+    Tabela tv = tabelaAchados((List<Map<String, Object>>) r.get("verificacoes"));
+    Tabela tc = r.get("cruzamento") instanceof Map<?, ?> c ? tabelaAchados((List<Map<String, Object>>) c.get("achados")) : Tabela.com();
+    return Tabela.juntar("Resultado", res, "Erros do PVA (E = erro, A = advertência)", te, "Verificações de malha", tv,
+        "Cruzamento EFD × XML", tc);
+  }
+
+  static Tabela tabelaAchados(List<Map<String, Object>> l) {
+    Tabela t = Tabela.com("Nível", "Achado", "O que é", "Qtde", "Valor");
+    if (l != null) for (Map<String, Object> x : l) t.linha(x.get("nivel"), x.get("codigo"), x.get("titulo"), x.get("quantidade"), x.get("valorTotal"));
+    return t;
   }
 
   @SuppressWarnings("unchecked")
@@ -655,6 +685,21 @@ final class Mcp {
     r.put("sessao", s.id);
     r.put("secao", secao);
     if (codigo != null) r.put("codigo", codigo);
+    if (r.get("itens") instanceof List<?> itens && !itens.isEmpty()) {
+      Tabela t;
+      if (secao.equals("erros")) {
+        t = Tabela.com("Linha", "Registro", "Campo", "Valor", "Esperado", "Tipo", "Mensagem");
+        for (Object o : itens) {
+          Map<String, Object> e = (Map<String, Object>) o;
+          t.linha(e.get("linha"), e.get("registro"), e.get("campo"), e.get("valor"), e.get("esperado"), e.get("tipo"), e.get("codigo"));
+        }
+      } else if (codigo == null && (secao.equals("verificacoes") || secao.equals("achados"))) {
+        t = tabelaAchados((List<Map<String, Object>>) itens);
+      } else {
+        t = Tabela.deMapas(itens);
+      }
+      r.put("tabela", t.md());
+    }
     return r;
   }
 
@@ -667,7 +712,10 @@ final class Mcp {
     }
     int limite = Math.max(1, num(a, "limite", 200, 2000));
     List<Map<String, String>> l = comBanco(s, per -> Verificacoes.linhas(per, sql, limite + 1));
-    return Json.obj("sessao", s.id, "truncado", l.size() > limite, "linhas", l.size() > limite ? l.subList(0, limite) : l);
+    List<Map<String, String>> linhas = l.size() > limite ? l.subList(0, limite) : l;
+    Map<String, Object> r = Json.obj("sessao", s.id, "truncado", l.size() > limite, "linhas", linhas);
+    if (!linhas.isEmpty()) r.put("tabela", Tabela.deMapas(linhas).md());
+    return r;
   }
 
   static final Path SAIDA = Path.of(System.getenv().getOrDefault("PVA_SAIDA_CONTAINER", "/saida"));
@@ -716,11 +764,77 @@ final class Mcp {
       s.pendentes += ops.size();
       r.put("sessao", s.id);
       r.put("edicoesNaoExportadas", s.pendentes);
+      r.put("tabela", tabelaEdicao(r));
       r.put("proximo", "efd_consultar para conferir; efd_gerar_arquivo para exportar e revalidar");
       return r;
     }
   }
 
+  @SuppressWarnings("unchecked")
+  static String tabelaEdicao(Map<String, Object> r) {
+    Tabela t = Tabela.com("#", "Ação", "Registro", "ID", "Campo", "Antes", "Depois");
+    int i = 1;
+    for (Object o : (List<?>) r.get("operacoes")) {
+      Map<String, Object> op = (Map<String, Object>) o;
+      Object acao = op.get("acao"), reg = op.get("registro"), id = op.get("id");
+      switch (String.valueOf(acao)) {
+        case "alterar" -> {
+          Map<String, Object> alt = (Map<String, Object>) op.get("alterados");
+          if (alt.isEmpty()) t.linha(i, acao, reg, id, "(nenhum campo mudou)", "", "");
+          for (Map.Entry<String, Object> e : alt.entrySet()) {
+            Map<String, Object> v = (Map<String, Object>) e.getValue();
+            t.linha(i, acao, reg, id, e.getKey(), v.get("antes"), v.get("depois"));
+          }
+        }
+        case "excluir" -> t.linha(i, acao, reg, id, "registro + filhos", op.get("linhasRemovidas") + " linha(s)", "excluído");
+        case "incluir" -> {
+          for (Map.Entry<String, Object> e : ((Map<String, Object>) op.get("campos")).entrySet()) {
+            if (!e.getKey().equals("REG") && e.getValue() != null && !String.valueOf(e.getValue()).isEmpty()) {
+              t.linha(i, acao, reg, id + " (pai " + op.get("pai") + ")", e.getKey(), "", e.getValue());
+            }
+          }
+        }
+        default -> { }
+      }
+      i++;
+    }
+    Tabela c = Tabela.com("C190 ID", "C100 ID", "CST", "CFOP", "Alíq.", "VL_OPR", "Despesas rateadas", "VL_RED_BC");
+    if (r.get("vlOprC190") instanceof Map<?, ?> v && v.get("c190") instanceof List<?> l) {
+      for (Object o : l) {
+        Map<String, Object> x = (Map<String, Object>) o;
+        c.linha(x.get("id"), x.get("c100"), x.get("cst"), x.get("cfop"), x.get("aliq"), x.get("vlOpr"), x.get("rateio"), x.get("vlRedBc"));
+      }
+    }
+    return Tabela.juntar("Correções gravadas", t, "C190 refeitos pelo gerador do PVA (completados pelo servidor)", c);
+  }
+
+  // Antes × depois da revalidação: por mensagem do PVA e pelos totais da apuração.
+  @SuppressWarnings("unchecked")
+  static String tabelaComparacao(Map<String, Object> antes, List<Map<String, Object>> errosAntes, Map<String, Object> depois,
+      List<Map<String, Object>> errosDepois) {
+    Tabela res = Tabela.com("Item", "Antes", "Depois");
+    res.linha("Estado", antes.get("estado"), depois.get("estado"));
+    res.linha("Válido", Boolean.TRUE.equals(antes.get("valido")) ? "sim" : "não", Boolean.TRUE.equals(depois.get("valido")) ? "sim" : "não");
+    res.linha("Erros", ((Map<String, Object>) antes.get("erros")).get("total"), ((Map<String, Object>) depois.get("erros")).get("total"));
+    Map<String, Object> a = antes.get("apuracaoIcms") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+    Map<String, Object> d = depois.get("apuracaoIcms") instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+    for (String k : List.of("VL_TOT_DEBITOS", "VL_TOT_CREDITOS", "VL_SLD_APURADO", "VL_ICMS_RECOLHER", "VL_SLD_CREDOR_TRANSPORTAR")) {
+      if (a.containsKey(k) || d.containsKey(k)) res.linha("E110 " + k, a.get(k), d.get(k));
+    }
+    Map<String, Object[]> por = new LinkedHashMap<>();
+    for (Map<String, Object> e : errosAntes) por.put(e.get("codigo") + "", new Object[] {e.get("tipo"), e.get("quantidade"), 0});
+    for (Map<String, Object> e : errosDepois) {
+      por.computeIfAbsent(e.get("codigo") + "", k -> new Object[] {e.get("tipo"), 0, 0})[2] = e.get("quantidade");
+    }
+    Tabela te = Tabela.com("Mensagem", "Tipo", "Antes", "Depois", "Situação");
+    for (Map.Entry<String, Object[]> e : por.entrySet()) {
+      long x = ((Number) e.getValue()[1]).longValue(), y = ((Number) e.getValue()[2]).longValue();
+      te.linha(e.getKey(), e.getValue()[0], x, y, y == 0 ? "resolvido" : x == 0 ? "novo" : y < x ? "diminuiu" : y > x ? "aumentou" : "igual");
+    }
+    return Tabela.juntar("Resultado da correção (arquivo original × arquivo gerado)", res, "Erros por mensagem", te);
+  }
+
+  @SuppressWarnings("unchecked")
   static Map<String, Object> gerarArquivo(Map<?, ?> a) throws Exception {
     Sessao s = sessao(a);
     if (s.esc == null) throw new IllegalArgumentException("o PVA não integrou este arquivo: não há escrituração para exportar");
@@ -736,6 +850,8 @@ final class Mcp {
     try {
       synchronized (PvaServer.class) {
         if (!SESSOES.containsKey(s.id)) throw new IllegalArgumentException("sessão " + s.id + " foi fechada");
+        Map<String, Object> antes = compacto(s);
+        List<Map<String, Object>> errosAntes = (List<Map<String, Object>>) errosAgrupados(s).get("porMensagem");
         Edicao.exportar(s.esc, destino);
         Files.copy(destino, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
         // A reimportação substitui a escrituração no banco (mesma chave): a sessão segue com o mesmo id.
@@ -754,6 +870,7 @@ final class Mcp {
         r.put("arquivoGerado", s.arquivo);
         r.put("bytes", Files.size(destino));
         r.put("edicoesExportadas", exportadas);
+        r.put("tabela", tabelaComparacao(antes, errosAntes, r, (List<Map<String, Object>>) errosAgrupados(s).get("porMensagem")));
         return r;
       }
     } finally {
@@ -812,8 +929,17 @@ final class Mcp {
       }
       itens.add(item);
     }
+    Tabela t = Tabela.com("Arquivo", "Estado", "Válido", "Erros", "Principais mensagens");
+    for (Map<String, Object> i : itens) {
+      List<String> pr = new ArrayList<>();
+      if (i.get("principais") instanceof List<?> l) {
+        for (Object o : l) pr.add(((Map<String, Object>) o).get("codigo") + " (" + ((Map<String, Object>) o).get("quantidade") + ")");
+      }
+      t.linha(Path.of(String.valueOf(i.get("arquivo"))).getFileName(), i.containsKey("falha") ? "falhou: " + i.get("falha") : i.get("estado"),
+          Boolean.TRUE.equals(i.get("valido")) ? "sim" : "não", i.get("erros"), String.join(", ", pr));
+    }
     return Json.obj("pasta", exibir(base), "arquivos", arqs.size(), "processados", itens.size(), "de", de,
-        "proximo", ate < arqs.size() ? ate : null, "itens", itens);
+        "proximo", ate < arqs.size() ? ate : null, "itens", itens, "tabela", t.md());
   }
 
   static int es(Map<String, Object> o) {

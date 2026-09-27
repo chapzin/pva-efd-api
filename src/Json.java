@@ -160,9 +160,11 @@ final class Json {
       switch (ch) {
         case '"' -> b.append("\\\"");
         case '\\' -> b.append("\\\\");
-        case '\n', '\r', '\t' -> b.append(' ');
+        case '\n' -> b.append("\\n");
+        case '\r' -> b.append("\\r");
+        case '\t' -> b.append("\\t");
         default -> {
-          if (ch < 0x20) b.append(' ');
+          if (ch < 0x20) b.append(String.format("\\u%04x", (int) ch));
           else b.append(ch);
         }
       }

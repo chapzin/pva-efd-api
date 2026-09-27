@@ -43,7 +43,7 @@ Além do veredito do PVA, o serviço faz as conferências que **a malha da SEFAZ
 | `POST /consultar` | Roda um `SELECT` no banco que o PVA montou com o arquivo (relatórios próprios sem escrever leitor de EFD). |
 | `GET /tabelas/{nome}` | Tabelas oficiais que o PVA baixa da Receita (CFOP, códigos de ajuste por UF, leiautes) filtradas por UF, código e data. |
 | `GET /mensagens/{codigo}` | O catálogo de mensagens do validador. |
-| `POST /mcp` | Servidor MCP: o Claude abre a EFD numa sessão, pagina erros e achados, consulta o banco do PVA com SQL, gera os livros oficiais (apuração, inventário, entradas, saídas...) em texto ou PDF e edita a escrituração pelo PVA, que exporta o TXT e o revalida. |
+| `POST /mcp` | Servidor MCP: o Claude abre a EFD numa sessão, pagina erros e achados, consulta o banco do PVA com SQL, gera os livros oficiais (apuração, inventário, entradas, saídas...) em texto ou PDF e edita a escrituração pelo PVA, que exporta o TXT e o revalida. Cada resposta traz uma tabela em Markdown para mostrar ao usuário. |
 
 Detalhes em [docs/api.md](docs/api.md); a lista das verificações e o porquê de cada uma em
 [docs/verificacoes.md](docs/verificacoes.md).

@@ -141,14 +141,14 @@ final class Edicao {
   static Map<String, Object> completarVlOpr(EdicaoEscrituracao ed) throws Exception {
     IRegistroDAO dao = ed.getPersistencia().getRegistroDAO();
     MetadadosRegistro m = meta(ed.getDescritor(), "C190");
-    String sql = "SELECT R.ID, R.ID_PAI, R.CST_ICMS, COALESCE(R.VL_BC_ICMS,0) AS BC,"
+    String sql = "SELECT R.ID, R.ID_PAI, R.CST_ICMS, R.CFOP, R.ALIQ_ICMS, COALESCE(R.VL_BC_ICMS,0) AS BC,"
         + " SUM(COALESCE(I.VL_ITEM,0)-COALESCE(I.VL_DESC,0)) AS MERC, SUM(COALESCE(I.VL_ITEM,0)-COALESCE(I.VL_DESC,0)+COALESCE(I.VL_ICMS_ST,0)"
         + "+COALESCE(I.VL_IPI,0)) AS VL, SUM(COALESCE(I.VL_ITEM,0)) AS PESO,"
         + " MAX(COALESCE(C.VL_FRT,0)+COALESCE(C.VL_SEG,0)+COALESCE(C.VL_OUT_DA,0)) AS DESP, COUNT(I.ID) AS N"
         + " FROM reg_c190 R JOIN reg_c100 C ON C.ID=R.ID_PAI LEFT JOIN reg_c170 I ON I.ID_PAI=C.ID"
         + " AND I.CST_ICMS=R.CST_ICMS AND I.CFOP=R.CFOP AND I.ALIQ_ICMS<=>R.ALIQ_ICMS"
-        + " WHERE R.VL_OPR IS NULL GROUP BY R.ID, R.ID_PAI ORDER BY R.ID_PAI, R.ID";
-    record Grupo(long id, BigDecimal vl, BigDecimal peso, BigDecimal merc, BigDecimal bc, String cst) {}
+        + " WHERE R.VL_OPR IS NULL GROUP BY R.ID, R.ID_PAI, R.CST_ICMS, R.CFOP, R.ALIQ_ICMS, R.VL_BC_ICMS ORDER BY R.ID_PAI, R.ID";
+    record Grupo(long id, BigDecimal vl, BigDecimal peso, BigDecimal merc, BigDecimal bc, String cst, String cfop, String aliq) {}
     Map<Long, List<Grupo>> porDoc = new LinkedHashMap<>();
     Map<Long, BigDecimal> desp = new LinkedHashMap<>();
     List<Long> semItens = new ArrayList<>();
@@ -160,13 +160,15 @@ final class Edicao {
         }
         long doc = rs.getLong("ID_PAI");
         porDoc.computeIfAbsent(doc, k -> new ArrayList<>()).add(new Grupo(rs.getLong("ID"), rs.getBigDecimal("VL"),
-            rs.getBigDecimal("PESO"), rs.getBigDecimal("MERC"), rs.getBigDecimal("BC"), rs.getString("CST_ICMS")));
+            rs.getBigDecimal("PESO"), rs.getBigDecimal("MERC"), rs.getBigDecimal("BC"), rs.getString("CST_ICMS"), rs.getString("CFOP"),
+            rs.getString("ALIQ_ICMS")));
         desp.put(doc, rs.getBigDecimal("DESP"));
       }
     }
     int preenchidos = 0;
     List<Long> rateados = new ArrayList<>();
     List<Long> comReducao = new ArrayList<>();
+    List<Map<String, Object>> detalhe = new ArrayList<>();
     for (Map.Entry<Long, List<Grupo>> e : porDoc.entrySet()) {
       List<Grupo> gs = e.getValue();
       BigDecimal total = desp.get(e.getKey()).setScale(2, RoundingMode.HALF_UP);
@@ -202,6 +204,9 @@ final class Edicao {
           if (red.signum() != 0) comReducao.add(g.id());
         }
         r.getCampo("VL_RED_BC").setValor(valor(red));
+        detalhe.add(Json.obj("id", g.id(), "c100", e.getKey(), "cst", cst, "cfop", g.cfop(),
+            "aliq", g.aliq() == null ? "" : g.aliq().replace('.', ','), "vlOpr", valor(g.vl().add(rateio)),
+            "rateio", valor(rateio), "vlRedBc", valor(red)));
         r.setAlterado(true);
         dao.atualizar(r);
         preenchidos++;
@@ -210,6 +215,7 @@ final class Edicao {
     Map<String, Object> out = Json.obj("c190Preenchidos", preenchidos,
         "regra", "VL_OPR = soma dos C170 do grupo (VL_ITEM - VL_DESC + VL_ICMS_ST + VL_IPI) + frete, seguro e outras"
             + " despesas do C100 rateados pelo VL_ITEM; campos de valor vazios viram 0,00");
+    out.put("c190", detalhe);
     if (!rateados.isEmpty()) out.put("c100ComDespesasRateadas", rateados);
     if (!comReducao.isEmpty()) {
       out.put("c190ComVlRedBcCalculado", comReducao);

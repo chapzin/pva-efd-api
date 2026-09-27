@@ -139,6 +139,7 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
   r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-malha.txt","pasta_xml":"xml-malha"}')
   s=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
   [ -n "$s" ] && echo "$r" | grep -q XML_NAO_ESCRITURADO || { echo "FALHOU (mcp efd_abrir): $r"; exit 1; }
+  echo "$r" | grep -q '| alerta | XML_NAO_ESCRITURADO |' || { echo "FALHOU (mcp tabela do resumo): $r"; exit 1; }
   r=$(ferramenta efd_consultar "{\"sessao\":\"$s\",\"sql\":\"SELECT COUNT(*) N FROM reg_c100\"}")
   echo "$r" | grep -q 'N\\":\\"2' || { echo "FALHOU (mcp efd_consultar): $r"; exit 1; }
   r=$(ferramenta efd_detalhes "{\"sessao\":\"$s\",\"secao\":\"achados\",\"codigo\":\"XML_NAO_ESCRITURADO\"}")
@@ -163,9 +164,10 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
     echo "pulado: efd_gerar_arquivo (suba com PVA_SAIDA montada com escrita)"
   else
     echo "$r" | grep -q 'GERADA_PARA_ENTREGA' || { echo "FALHOU (mcp efd_gerar_arquivo): $r"; exit 1; }
+    echo "$r" | grep -q '| E110 VL_ICMS_RECOLHER | 180,00 | 120,00 |' || { echo "FALHOU (mcp tabela antes × depois): $r"; exit 1; }
     r=$(ferramenta efd_consultar "{\"sessao\":\"$s\",\"sql\":\"SELECT VL_ICMS_RECOLHER R FROM reg_e110\"}")
     echo "$r" | grep -q 'R\\":\\"120.00' || { echo "FALHOU (mcp E110 após edição): $r"; exit 1; }
-    echo "ok: /mcp edita a escrituração, recalcula a apuração, gera o TXT pelo PVA e o revalida sem erros"
+    echo "ok: /mcp edita a escrituração, recalcula a apuração, gera o TXT pelo PVA e o revalida sem erros (com tabela antes × depois)"
 
     r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-malha.txt"}')
     m=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
@@ -174,6 +176,7 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
       {\"acao\":\"incluir\",\"registro\":\"C170\",\"pai\":2,\"campos\":{\"NUM_ITEM\":\"2\",\"COD_ITEM\":\"MAT01\",\"QTD\":\"1\",\"UNID\":\"UN\",\"VL_ITEM\":\"100,00\",\"IND_MOV\":\"0\",\"CST_ICMS\":\"020\",\"CFOP\":\"1102\",\"VL_BC_ICMS\":\"60,00\",\"ALIQ_ICMS\":\"12,00\",\"VL_ICMS\":\"7,20\"}},
       {\"acao\":\"alterar\",\"registro\":\"E116\",\"id\":1,\"campos\":{\"VL_OR\":\"136,80\"}}]}")
     echo "$r" | grep -q 'c100ComDespesasRateadas' || { echo "FALHOU (mcp recalcular_analiticos): $r"; exit 1; }
+    echo "$r" | grep -q '| 020 | 1102 | 12,00 | 103,34 | 3,34 | 43,34 |' || { echo "FALHOU (mcp tabela dos C190): $r"; exit 1; }
     r=$(ferramenta efd_gerar_arquivo "{\"sessao\":\"$m\"}")
     echo "$r" | grep -q 'GERADA_PARA_ENTREGA' || { echo "FALHOU (mcp analíticos gerados): $r"; exit 1; }
     r=$(ferramenta efd_consultar "{\"sessao\":\"$m\",\"sql\":\"SELECT GROUP_CONCAT(CONCAT(VL_OPR,'/',VL_RED_BC) ORDER BY CFOP) V FROM reg_c190 WHERE ID_PAI=(SELECT MAX(ID) FROM reg_c100)\"}")

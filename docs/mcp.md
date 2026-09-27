@@ -43,6 +43,25 @@ pasta montada (`cliente/efd-2025-01.txt`). Qualquer caminho fora dela é recusad
 | `tabela_sped` | Tabelas externas da Receita: sem `nome` lista as tabelas; com `nome` filtra por `uf`, prefixo de `codigo` e `data` de vigência. |
 | `explicar_mensagem` | Texto oficial de uma mensagem do validador. |
 
+### Tabelas para mostrar ao usuário
+
+As respostas de análise e de correção trazem `tabela`, em Markdown, pronta para o Claude mostrar como resultado. As
+instruções do servidor pedem que ele exiba a tabela como está a cada achado, resultado e correção, sem refazer as
+contas.
+
+| Ferramenta | Tabela |
+|---|---|
+| `efd_abrir` | Resultado (estado, válido, erros, ICMS a recolher, saldo credor), erros do PVA por mensagem, verificações de malha e achados do cruzamento. |
+| `efd_detalhes` | Erros linha a linha (linha, registro, campo, valor, esperado), lista de achados ou as ocorrências de um achado. |
+| `efd_consultar` | As linhas do SELECT. |
+| `efd_editar` | Correções gravadas (campo, antes, depois) e os C190 refeitos (VL_OPR, despesas rateadas, VL_RED_BC). |
+| `efd_gerar_arquivo` | Arquivo original × arquivo gerado: estado, erros e totais do E110, e cada mensagem do PVA como resolvida, nova, menor, maior ou igual. |
+| `efd_validar_pasta` | Um arquivo por linha: estado, válido, erros e principais mensagens. |
+
+Até 50 linhas por tabela (o resto vem avisado para paginar); células com mais de 90 caracteres são cortadas. Valores
+monetários da apuração saem em pt-BR (`1.234,56`); os do `efd_consultar` saem como o banco guarda (`1234.56`). Se a
+resposta passar do limite, a tabela sai primeiro (`tabelaOmitida`).
+
 ### Resumo de `efd_abrir`
 
 Traz o que cabe numa primeira leitura: estado e veredito, contribuinte, período, apuração do E110, quantidades,

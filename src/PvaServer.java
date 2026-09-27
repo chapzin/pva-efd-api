@@ -115,8 +115,12 @@ public class PvaServer {
 
   static Map<String, Object> erro(String tipo, String codigo, String registro, String campo, long linha, String valor,
       String esperado, String conteudo) {
-    return Json.obj("tipo", tipo, "codigo", codigo, "descricao", Catalogo.mensagem(codigo), "registro", registro, "campo", campo,
-        "linha", linha, "valor", valor, "esperado", esperado, "conteudo", conteudo);
+    return Json.obj("tipo", tipo, "codigo", codigo, "descricao", umaLinha(Catalogo.mensagem(codigo)), "registro", registro,
+        "campo", campo, "linha", linha, "valor", valor, "esperado", esperado, "conteudo", umaLinha(conteudo));
+  }
+
+  static String umaLinha(String s) {
+    return s == null ? null : s.replaceAll("[\\r\\n\\t]+", " ").strip();
   }
 
   static String tabelaInconsistencias(IPersistencia per) throws Exception {

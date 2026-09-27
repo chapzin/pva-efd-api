@@ -136,6 +136,13 @@ mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do
 modal ("substituir?") e a chamada não volta; o arquivo é apagado antes. O `efd_gerar_arquivo` do MCP reimporta o
 TXT gerado na mesma sessão (`processar`), então o resumo volta com a validação do arquivo novo.
 
+## Tabelas e JSON
+
+`Tabela.java` monta o Markdown que as ferramentas do MCP devolvem em `tabela`. Para ele chegar com as quebras de
+linha, `Json.str` escapa `\n`, `\r` e `\t` (antes trocava por espaço) e os demais caracteres de controle como
+`\uXXXX`. Os campos de erro que vêm de linhas do arquivo (`conteudo`, `descricao`) continuam numa linha só
+(`PvaServer.umaLinha`), então a resposta HTTP de `/validar` não muda.
+
 ## Livros sem tela
 
 `Livros.java` pega o controlador de relatórios pelo mesmo caminho do menu:
