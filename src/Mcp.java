@@ -239,6 +239,17 @@ final class Mcp {
           + " (tabelas reg_xxxx com os campos do Guia Prático). Somente leitura.",
           props("sessao", prop("string", "Id devolvido por efd_abrir."), "sql", prop("string", "Um único comando, sem ;"),
               "limite", prop("integer", "Máximo de linhas (padrão 200, máximo 2000).")), List.of("sessao", "sql")),
+      new Ferramenta("efd_livro", "Livros oficiais que o PVA gera da escrituração da sessão (os mesmos do menu Relatórios): apuração do"
+          + " ICMS, do ICMS-ST, DIFAL, IPI, inventário, CIAP, entradas, saídas, produção e estoque, créditos fiscais. Sem livro lista"
+          + " os livros e períodos disponíveis. formato=texto devolve as páginas em texto (paginado); formato=pdf grava o PDF em"
+          + " PVA_SAIDA e devolve o caminho.",
+          comPag(props("sessao", prop("string", "Id devolvido por efd_abrir."),
+              "livro", prop("string", "apuracao_icms | apuracao_st | difal | apuracao_ipi | inventario | ciap | entradas | saidas |"
+                  + " producao_estoque | creditos_fiscais"),
+              "periodo", prop("integer", "Índice do período na lista de efd_livro sem livro (padrão 0)."),
+              "formato", prop("string", "texto (padrão) ou pdf"),
+              "detalhar", prop("boolean", "Entradas/saídas: lista documento a documento além do resumo por CST/CFOP (padrão false)."))),
+          List.of("sessao")),
       new Ferramenta("efd_fechar", "Fecha a sessão e apaga a escrituração do banco do PVA.",
           props("sessao", prop("string", "Id devolvido por efd_abrir.")), List.of("sessao")),
       new Ferramenta("efd_validar_pasta", "Valida em lote as EFD de uma pasta no PVA (sem abrir sessão): estado, total de erros e"
@@ -275,6 +286,7 @@ final class Mcp {
         case "efd_detalhes" -> detalhes(a);
         case "efd_consultar" -> consultar(a);
         case "efd_fechar" -> fecharSessao(a);
+        case "efd_livro" -> livro(a);
         case "efd_validar_pasta" -> validarPasta(a);
         case "tabela_sped" -> tabela(a);
         case "explicar_mensagem" -> explicar(a);
@@ -625,6 +637,41 @@ final class Mcp {
     int limite = Math.max(1, num(a, "limite", 200, 2000));
     List<Map<String, String>> l = comBanco(s, per -> Verificacoes.linhas(per, sql, limite + 1));
     return Json.obj("sessao", s.id, "truncado", l.size() > limite, "linhas", l.size() > limite ? l.subList(0, limite) : l);
+  }
+
+  static final Path SAIDA = Path.of(System.getenv().getOrDefault("PVA_SAIDA_CONTAINER", "/saida"));
+  static final String SAIDA_HOST = System.getenv().getOrDefault("PVA_SAIDA_HOST", "").replaceAll("/+$", "");
+
+  static Map<String, Object> livro(Map<?, ?> a) throws Exception {
+    Sessao s = sessao(a);
+    if (s.esc == null) throw new IllegalArgumentException("o PVA não integrou este arquivo: não há livros");
+    String livro = txt(a, "livro");
+    synchronized (PvaServer.class) {
+      if (!SESSOES.containsKey(s.id)) throw new IllegalArgumentException("sessão " + s.id + " foi fechada");
+      if (livro == null) return Json.obj("sessao", s.id, "livros", Livros.disponiveis(s.esc));
+      int periodo = num(a, "periodo", 0, 10_000);
+      boolean detalhar = Boolean.TRUE.equals(a.get("detalhar"));
+      var jp = Livros.gerar(s.esc, livro, periodo, detalhar);
+      String formato = txt(a, "formato") == null ? "texto" : txt(a, "formato");
+      Map<String, Object> r = Json.obj("sessao", s.id, "livro", livro, "periodo", periodo, "paginasDoLivro", jp.getPages().size());
+      if ("pdf".equals(formato)) {
+        if (!Files.isDirectory(SAIDA) || !Files.isWritable(SAIDA)) {
+          throw new IllegalArgumentException("formato pdf precisa da pasta de saída montada com escrita (PVA_SAIDA)");
+        }
+        String nome = livro + "-" + String.valueOf(s.chave).replaceAll("[^0-9A-Za-z]+", "_") + "-" + periodo + ".pdf";
+        Path destino = SAIDA.resolve(nome);
+        Livros.pdf(jp, destino);
+        r.put("pdf", SAIDA_HOST.isEmpty() ? destino.toString() : SAIDA_HOST + "/" + nome);
+        r.put("bytes", Files.size(destino));
+        return r;
+      }
+      if (!"texto".equals(formato)) throw new IllegalArgumentException("formato deve ser texto ou pdf");
+      Map<?, ?> pag = new LinkedHashMap<>(Map.of("pagina", num(a, "pagina", 1, Integer.MAX_VALUE),
+          "por_pagina", Math.max(1, num(a, "por_pagina", 5, 20))));
+      r.putAll(pagina(Livros.texto(jp), pag));
+      r.put("nota", "itens = páginas do livro, cada uma uma lista de linhas; colunas separadas por \" | \"");
+      return r;
+    }
   }
 
   static Map<String, Object> fecharSessao(Map<?, ?> a) {

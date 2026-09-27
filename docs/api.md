@@ -30,7 +30,7 @@ acrescentam campos à mesma resposta.
 | Campo | Tipo | Significado |
 |---|---|---|
 | `versaoPva` | texto | Versão do PVA que validou. |
-| `avisos` | lista | Conferências feitas **antes** do PVA. Hoje: `LEIAUTE_DO_PERIODO`, quando o `COD_VER` do 0000 não é o leiaute vigente na data inicial (segundo a tabela `VERSOES_LEIAUTE` da Receita), com `informado` e `esperado`; `ASSINATURA_REMOVIDA`, quando o arquivo veio assinado e o serviço cortou a assinatura depois do `\|9999\|`; e `SEM_REGISTRO_0000`, quando a primeira linha não é o registro 0000 (arquivo que não é EFD ou com lixo antes do 0000; o PVA reprova em seguida com `falha`). |
+| `avisos` | lista | Conferências feitas **antes** do PVA. Hoje: `LEIAUTE_DO_PERIODO`, quando o `COD_VER` do 0000 não é o leiaute vigente na data inicial (segundo a tabela `VERSOES_LEIAUTE` da Receita), com `informado` e `esperado`; `ASSINATURA_REMOVIDA`, quando o arquivo veio assinado e o serviço cortou a assinatura depois do `\|9999\|`; `CODIFICACAO_UTF8`, quando o arquivo tem acentos gravados em UTF-8 (a EFD é ISO-8859-1: o PVA aceita, mas os acentos ficam quebrados na escrituração e nos livros), com `linhas` e `primeiraLinha`; e `SEM_REGISTRO_0000`, quando a primeira linha não é o registro 0000 (arquivo que não é EFD ou com lixo antes do 0000; o PVA reprova em seguida com `falha`). |
 | `estado` | texto ou `null` | Estado em que o PVA deixou a escrituração. `GERADA_PARA_ENTREGA` ou `VALIDADA` = aprovado; `EM_EDICAO` = reprovado; `null` = o arquivo nem chegou a ser integrado (erro de estrutura, veja abaixo). |
 | `valido` | booleano | `true` só se `estado` for `GERADA_PARA_ENTREGA` ou `VALIDADA`. |
 | `erros` | lista | Inconsistências apontadas pelo PVA (máximo de 500 por arquivo, na ordem das linhas). |
@@ -218,6 +218,7 @@ Servidor MCP (Streamable HTTP, JSON-RPC) para o Claude usar o PVA com sessões. 
 | `PVA_LIMITE_MB` | `512` | Tamanho máximo do arquivo aceito. |
 | `PVA_UF_DIFAL_NA_ENTRADA` | `CE` | UFs (separadas por vírgula) em que `DIFAL_SEM_AJUSTE` sai como `info`, porque o DIFAL é cobrado na entrada por guia própria. |
 | `PVA_DADOS_HOST` | vazio | Caminho do host da pasta montada em `/dados` (MCP). |
+| `PVA_SAIDA_HOST` | vazio | Caminho do host da pasta montada em `/saida`, onde `efd_livro` grava os PDFs. |
 | `PVA_MCP_SESSOES` | `4` | Sessões do MCP abertas ao mesmo tempo. |
 | `PVA_MCP_TTL_MIN` | `60` | Minutos de ociosidade até o MCP fechar a sessão. |
 | `JAVA_OPTS` | vazio | Opções extras para a JVM (ex.: `-Xmx1536m`). |

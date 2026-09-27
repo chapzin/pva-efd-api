@@ -14,6 +14,8 @@ services:
     volumes:
       # Pasta que o MCP (/mcp) enxerga, só leitura. Ex.: PVA_DADOS=$HOME/auditorias docker compose up -d
       - "${PVA_DADOS:-./dados}:/dados:ro"
+      # Onde efd_livro grava os PDFs dos livros (a única pasta com escrita).
+      - "${PVA_SAIDA:-./saida}:/saida"
     environment:
       # Baixa as tabelas externas da Receita no boot e a cada N horas (0 = só manual).
       PVA_ATUALIZAR_TABELAS_HORAS: "24"
@@ -21,3 +23,4 @@ services:
       PVA_LIMITE_MB: "512"
       # O mesmo caminho do host, para o Claude poder passar o caminho que ele conhece.
       PVA_DADOS_HOST: "${PVA_DADOS:-}"
+      PVA_SAIDA_HOST: "${PVA_SAIDA:-}"

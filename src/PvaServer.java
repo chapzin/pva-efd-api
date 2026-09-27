@@ -184,8 +184,36 @@ public class PvaServer {
 
   // Conferência antes do PVA: o leiaute errado para o período é o motivo mais comum
   // de arquivo recusado sem explicação clara.
+  // A EFD é ISO-8859-1. Arquivo gravado em UTF-8 passa no PVA, mas "Ç" vira "Ã‡" na escrituração e nos livros.
+  static Map<String, Object> utf8(Path arq) {
+    long linha = 1, linhas = 0, primeira = 0;
+    boolean nestaLinha = false;
+    try (var in = new java.io.BufferedInputStream(Files.newInputStream(arq), 1 << 16)) {
+      int ant = -1, b;
+      while ((b = in.read()) != -1) {
+        if (b == '\n') {
+          linha++;
+          nestaLinha = false;
+        } else if ((ant == 0xC2 || ant == 0xC3) && b >= 0x80 && b <= 0xBF && !nestaLinha) {
+          nestaLinha = true;
+          linhas++;
+          if (primeira == 0) primeira = linha;
+        }
+        ant = b;
+      }
+    } catch (java.io.IOException e) {
+      return null;
+    }
+    if (linhas == 0) return null;
+    return Json.obj("codigo", "CODIFICACAO_UTF8", "mensagem", "O arquivo parece gravado em UTF-8 (" + linhas + " linhas com acento"
+        + " em dois bytes, a primeira é a " + primeira + "). A EFD é ISO-8859-1: o PVA aceita, mas grava os acentos quebrados"
+        + " (\"Ç\" vira \"Ã‡\") na escrituração e nos livros.", "linhas", linhas, "primeiraLinha", primeira);
+  }
+
   static List<Map<String, Object>> avisos(Path arq) {
     List<Map<String, Object>> out = new ArrayList<>();
+    Map<String, Object> u = utf8(arq);
+    if (u != null) out.add(u);
     try (var r = Files.newBufferedReader(arq, StandardCharsets.ISO_8859_1)) {
       String l = r.readLine();
       if (l == null || !l.startsWith("|0000|")) {

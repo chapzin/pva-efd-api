@@ -43,7 +43,7 @@ Além do veredito do PVA, o serviço faz as conferências que **a malha da SEFAZ
 | `POST /consultar` | Roda um `SELECT` no banco que o PVA montou com o arquivo (relatórios próprios sem escrever leitor de EFD). |
 | `GET /tabelas/{nome}` | Tabelas oficiais que o PVA baixa da Receita (CFOP, códigos de ajuste por UF, leiautes) filtradas por UF, código e data. |
 | `GET /mensagens/{codigo}` | O catálogo de mensagens do validador. |
-| `POST /mcp` | Servidor MCP: o Claude abre a EFD numa sessão, pagina erros e achados e consulta o banco do PVA com SQL. |
+| `POST /mcp` | Servidor MCP: o Claude abre a EFD numa sessão, pagina erros e achados, consulta o banco do PVA com SQL e gera os livros oficiais (apuração, inventário, entradas, saídas...) em texto ou PDF. |
 
 Detalhes em [docs/api.md](docs/api.md); a lista das verificações e o porquê de cada uma em
 [docs/verificacoes.md](docs/verificacoes.md).
@@ -160,8 +160,8 @@ PVA_DADOS=$HOME/auditorias docker compose up -d --build
 claude mcp add --transport http pva http://127.0.0.1:8095/mcp
 ```
 
-O Claude passa a ter `efd_abrir`, `efd_detalhes`, `efd_consultar`, `efd_validar_pasta` e outras ferramentas sobre os
-arquivos de `PVA_DADOS`. Detalhes em [docs/mcp.md](docs/mcp.md).
+O Claude passa a ter `efd_abrir`, `efd_detalhes`, `efd_consultar`, `efd_livro`, `efd_validar_pasta` e outras
+ferramentas sobre os arquivos de `PVA_DADOS`. Detalhes em [docs/mcp.md](docs/mcp.md).
 
 ### Conferir que tudo funciona
 

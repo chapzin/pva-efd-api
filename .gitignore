@@ -4,3 +4,4 @@ resultados/
 instalador/*.sh
 __pycache__/
 dados/
+saida/

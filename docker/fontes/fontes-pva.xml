@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Os modelos dos livros do PVA pedem Arial; a Liberation tem a mesma métrica, então o layout não muda. -->
+<fontFamilies>
+  <fontFamily name="Arial">
+    <normal>/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf</normal>
+    <bold>/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf</bold>
+    <italic>/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf</italic>
+    <boldItalic>/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf</boldItalic>
+    <pdfEncoding>Identity-H</pdfEncoding>
+    <pdfEmbedded>true</pdfEmbedded>
+  </fontFamily>
+  <fontFamily name="Verdana">
+    <normal>/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf</normal>
+    <bold>/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf</bold>
+    <italic>/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf</italic>
+    <boldItalic>/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf</boldItalic>
+    <pdfEncoding>Identity-H</pdfEncoding>
+    <pdfEmbedded>true</pdfEmbedded>
+  </fontFamily>
+  <fontFamily name="Courier New">
+    <normal>/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf</normal>
+    <bold>/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf</bold>
+    <italic>/usr/share/fonts/truetype/liberation/LiberationMono-Italic.ttf</italic>
+    <boldItalic>/usr/share/fonts/truetype/liberation/LiberationMono-BoldItalic.ttf</boldItalic>
+    <pdfEncoding>Identity-H</pdfEncoding>
+    <pdfEmbedded>true</pdfEmbedded>
+  </fontFamily>
+  <fontFamily name="Times New Roman">
+    <normal>/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf</normal>
+    <bold>/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf</bold>
+    <italic>/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf</italic>
+    <boldItalic>/usr/share/fonts/truetype/liberation/LiberationSerif-BoldItalic.ttf</boldItalic>
+    <pdfEncoding>Identity-H</pdfEncoding>
+    <pdfEmbedded>true</pdfEmbedded>
+  </fontFamily>
+</fontFamilies>

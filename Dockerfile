@@ -37,10 +37,12 @@ FROM --platform=linux/amd64 debian:bookworm-slim
 RUN dpkg --add-architecture i386 && apt-get update -qq && \
     apt-get install -y -qq --no-install-recommends \
       libc6:i386 libstdc++6:i386 zlib1g:i386 libncurses5:i386 libcrypt1:i386 \
-      libfreetype6 fontconfig xvfb xauth libxrender1 libxtst6 libxi6 && \
+      libfreetype6 fontconfig fonts-liberation xvfb xauth libxrender1 libxtst6 libxi6 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=instalador /opt/pva /opt/pva
 COPY --from=compilador /opt/pva-server /opt/pva-server
+# Fontes dos livros (efd_livro): Arial e cia. apontam para a Liberation.
+COPY docker/fontes/ /opt/pva-server/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 # O mysqld embutido resolve caminhos relativos contra o prefixo compilado /usr/local/mysql
 # e se recusa a rodar como root.

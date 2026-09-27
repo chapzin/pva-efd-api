@@ -107,6 +107,17 @@ CNPJ/CPF + período: importar a mesma chave substitui a anterior, então `proces
 mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do HTTP ou do MCP, trava em
 `PvaServer.class`.
 
+## Livros sem tela
+
+`Livros.java` pega o controlador de relatórios pelo mesmo caminho do menu:
+`FabricaControle.getServico(IControleGerarRelatorio.class)` devolve a versão do Ato COTEPE certa (017 herda de
+016... até 002). Ele é iniciado com a escrituração da sessão e a `PersistenciaEscrituracaoFiscal`. Os
+`getPeriodos...()` dão os parâmetros e cada `gerarRelatorio...()` devolve um `IRelatorio`, cujo `JasperPrint` vira
+PDF (`JasperExportManager`) ou texto, com os elementos da página agrupados em linhas pela posição vertical. O
+preenchimento roda com `Locale` pt-BR, como na tela. `docker/fontes/` registra no JasperReports as famílias Arial,
+Verdana, Courier New e Times New Roman apontando para a Liberation (`fonts-liberation`); sem isso o preenchimento
+falha com `JRFontNotFoundException`.
+
 ## Tabelas externas sem diálogo
 
 `ControleAtualizarTabela.atualizarTabelas()` (o que o menu chama) abre um diálogo modal de seleção. O caminho

@@ -35,6 +35,7 @@ pasta montada (`cliente/efd-2025-01.txt`). Qualquer caminho fora dela é recusad
 | `efd_abrir` | Importa a EFD (`caminho`), valida, roda as verificações de malha e, com `pasta_xml`, o cruzamento com os XMLs da pasta (subpastas incluídas). Devolve um **resumo compacto** e o id da **sessão**. |
 | `efd_detalhes` | Pagina uma seção da sessão: `erros`, `verificacoes`, `achados`, `resumo`, `avisos`, `mensagens`, `estatistica`. `codigo` filtra os erros por mensagem ou abre as ocorrências de um achado. |
 | `efd_consultar` | `SELECT`, `SHOW TABLES` ou `DESCRIBE <tabela>` no banco da sessão (tabelas `reg_0000`, `reg_c100`, `reg_c190`, `reg_e110`...). Somente leitura, até 2000 linhas. |
+| `efd_livro` | Livros oficiais que o PVA gera da escrituração (menu Relatórios): `apuracao_icms`, `apuracao_st`, `difal`, `apuracao_ipi`, `inventario`, `ciap`, `entradas`, `saidas`, `producao_estoque`, `creditos_fiscais`. Sem `livro` lista os livros e períodos que a escrituração tem. `formato=texto` devolve as páginas em linhas (paginado); `formato=pdf` grava o PDF em `PVA_SAIDA`. `detalhar=true` lista entradas e saídas nota a nota. |
 | `efd_fechar` | Fecha a sessão e apaga a escrituração do banco do PVA. |
 | `efd_validar_pasta` | Valida em lote as EFD de uma pasta, sem sessão: estado, total de erros e as 3 mensagens mais frequentes por arquivo. Até 50 por chamada; continue com `a_partir_de`. |
 | `tabela_sped` | Tabelas externas da Receita: sem `nome` lista as tabelas; com `nome` filtra por `uf`, prefixo de `codigo` e `data` de vigência. |
@@ -46,6 +47,20 @@ Traz o que cabe numa primeira leitura: estado e veredito, contribuinte, período
 avisos, erros **agrupados por mensagem** (as 15 mais frequentes, contadas sobre todas as inconsistências, não só as
 500 do `/validar`), a lista de verificações e de achados do cruzamento sem as ocorrências, e a estatística dos XMLs.
 O detalhe vem depois, por `efd_detalhes` e `efd_consultar`.
+
+## Livros
+
+`efd_livro` usa os mesmos controladores e modelos (JasperReports) que o PVA usa na tela, então o conteúdo e o layout
+são os do PVA: o livro de inventário de 3 mil itens sai em ~600 páginas em segundos. Os modelos pedem Arial; a imagem
+traz a Liberation (mesma métrica) registrada com esse nome. Os valores saem em pt-BR (`1.000,00`).
+
+O PDF vai para a pasta `PVA_SAIDA` (padrão `./saida`), montada com escrita:
+
+```bash
+PVA_DADOS=$HOME/auditorias PVA_SAIDA=$HOME/auditorias/livros docker compose up -d
+```
+
+Sem ela, só o formato texto funciona.
 
 ## Sessões
 
@@ -78,5 +93,7 @@ total está em `quantidade`.
 |---|---|---|
 | `PVA_DADOS` (compose) | `./dados` | Pasta do host montada só leitura em `/dados`. |
 | `PVA_DADOS_HOST` | vazio | Caminho do host equivalente a `/dados`, para aceitar caminhos do host. O compose preenche com `PVA_DADOS`. |
+| `PVA_SAIDA` (compose) | `./saida` | Pasta do host montada com escrita em `/saida`, para os PDFs de `efd_livro`. |
+| `PVA_SAIDA_HOST` | vazio | Caminho do host equivalente a `/saida`, para a resposta trazer o caminho que o Claude enxerga. |
 | `PVA_MCP_SESSOES` | `4` | Sessões abertas ao mesmo tempo. |
 | `PVA_MCP_TTL_MIN` | `60` | Minutos de ociosidade até a sessão ser fechada. |

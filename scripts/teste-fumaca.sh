@@ -25,6 +25,12 @@ echo "$r" | grep -q '"estado":"GERADA_PARA_ENTREGA"' && echo "$r" | grep -q 'ASS
   || { echo "FALHOU (assinado): $r"; exit 1; }
 echo "ok: arquivo assinado tem a assinatura cortada e é validado"
 
+utf8=$(mktemp)
+sed 's/EMPRESA FICTICIA/EMPRESA FICTÍCIA/' "$AQUI/exemplos/efd-exemplo-valido.txt" > "$utf8"
+r=$(curl -sS --max-time 900 --data-binary @"$utf8" -H 'Content-Type: text/plain' "$URL/validar"); rm -f "$utf8"
+echo "$r" | grep -q CODIFICACAO_UTF8 || { echo "FALHOU (aviso UTF-8): $r"; exit 1; }
+echo "ok: arquivo em UTF-8 recebe o aviso CODIFICACAO_UTF8"
+
 r=$(validar efd-exemplo-com-erro.txt)
 echo "$r" | grep -q '"valido":false' && echo "$r" | grep -q 'MSG_VL_ICMS_ANALIT' || { echo "FALHOU (com erro): $r"; exit 1; }
 echo "ok: arquivo com erro reprovado com MSG_VL_ICMS_ANALIT"
@@ -137,8 +143,11 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
   echo "$r" | grep -q 'N\\":\\"2' || { echo "FALHOU (mcp efd_consultar): $r"; exit 1; }
   r=$(ferramenta efd_detalhes "{\"sessao\":\"$s\",\"secao\":\"achados\",\"codigo\":\"XML_NAO_ESCRITURADO\"}")
   echo "$r" | grep -q 23250177888999000181550010000004571876543228 || { echo "FALHOU (mcp efd_detalhes): $r"; exit 1; }
+  r=$(ferramenta efd_livro "{\"sessao\":\"$s\",\"livro\":\"apuracao_icms\"}")
+  echo "$r" | grep -q 'APURAÇÃO DO ICMS' && echo "$r" | grep -q 'VALOR TOTAL DO ICMS A RECOLHER | 144,00' \
+    || { echo "FALHOU (mcp efd_livro): $r"; exit 1; }
   ferramenta efd_fechar "{\"sessao\":\"$s\"}" | grep -q 'fechada' || { echo "FALHOU (mcp efd_fechar)"; exit 1; }
-  echo "ok: /mcp abre a EFD com os XMLs, consulta o banco, pagina o achado e fecha a sessão"
+  echo "ok: /mcp abre a EFD com os XMLs, consulta o banco, pagina o achado, gera o livro de apuração e fecha a sessão"
 else
   echo "pulado: fluxo de arquivos do /mcp (suba com PVA_DADOS=./exemplos para testar)"
 fi
