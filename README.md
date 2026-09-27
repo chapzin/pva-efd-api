@@ -160,7 +160,7 @@ PVA_DADOS=$HOME/auditorias docker compose up -d --build
 claude mcp add --transport http pva http://127.0.0.1:8095/mcp
 ```
 
-O Claude passa a ter `efd_abrir`, `efd_detalhes`, `efd_consultar`, `efd_livro`, `efd_editar`, `efd_propor_nfe`, `efd_gerar_arquivo`,
+O Claude passa a ter `efd_abrir`, `efd_detalhes`, `efd_consultar`, `efd_livro`, `efd_editar`, `efd_propor_nfe`, `efd_propor_correcao`, `efd_gerar_arquivo`,
 `efd_validar_pasta` e outras ferramentas sobre os arquivos de `PVA_DADOS`. `efd_gerar_arquivo` grava o TXT em
 `PVA_SAIDA` (padrão `./saida`). Detalhes em [docs/mcp.md](docs/mcp.md).
 
@@ -175,7 +175,8 @@ make teste
 - `exemplos/efd-exemplo-valido.txt`: tem que sair `GERADA_PARA_ENTREGA`.
 - `exemplos/efd-exemplo-com-erro.txt`: tem que sair reprovado com `MSG_VL_ICMS_ANALIT` (ICMS do C190 diferente do C100).
 - `exemplos/efd-exemplo-malha.txt` + `exemplos/xml-malha/`: passa no PVA, mas `/analisar` aponta crédito de uso e
-  consumo e `/cruzar` aponta uma nota não escriturada e crédito de fornecedor do Simples acima do permitido.
+  consumo e `/cruzar` aponta uma nota não escriturada e crédito de fornecedor do Simples acima do permitido. Com
+  `exemplos/xml-correcao/`, a venda está cancelada e a compra tem o XML regerado (chave diferente da autorizada).
 - `exemplos/efd-exemplo-sat.txt` + `exemplos/xml-sat/`: `/cruzar` confere os CF-e contra o resumo diário do SAT (C860/C890).
 - `exemplos/efd-exemplo-frete.txt` + `exemplos/xml-frete/`: `/cruzar` aponta crédito de CT-e sem ser o tomador e um
   CT-e tomado fora do D100; o CT-e cancelado (com o evento) fica de fora.
@@ -185,7 +186,9 @@ make teste
   apuração, exporta pelo PVA e confere que o arquivo gerado sai `GERADA_PARA_ENTREGA`; na EFD da malha, refaz os C190
   com frete rateado no `VL_OPR` e `VL_RED_BC` do CST 020; e glosa o crédito de uso e consumo no item, com os totais do
   C100 alinhados aos C190 refeitos, até o arquivo sair sem erros; e escritura a NF-e fora da EFD pela proposta do
-  `efd_propor_nfe` (de-para, pai `@N`) até o achado `XML_NAO_ESCRITURADO` sair como resolvido.
+  `efd_propor_nfe` (de-para, pai `@N`) até o achado `XML_NAO_ESCRITURADO` sair como resolvido; com `xml-correcao`,
+  grava a proposta do `efd_propor_correcao` (crédito de uso e consumo, nota cancelada com o 0150 órfão, chave
+  regerada) até os três achados saírem como resolvidos e o arquivo sem erros.
 
 ---
 

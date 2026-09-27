@@ -125,11 +125,14 @@ public class PvaServer {
 
   static String tabelaInconsistencias(IPersistencia per) throws Exception {
     String tabela = null;
-    try (ResultSet t = per.executarComandoSql("SHOW TABLES")) {
+    ResultSet t = per.executarComandoSql("SHOW TABLES");
+    try {
       while (t.next()) {
         String n = t.getString(1);
         if (n.toLowerCase().contains("inconsist")) tabela = n;
       }
+    } finally {
+      Verificacoes.fechar(t);
     }
     return tabela;
   }
@@ -138,12 +141,15 @@ public class PvaServer {
     List<Map<String, Object>> out = new ArrayList<>();
     String tabela = tabelaInconsistencias(per);
     if (tabela == null) return out;
-    try (ResultSet r = per.executarComandoSql("SELECT TIPO, ID_MENSAGEM, NOME_REGISTRO, ID_CAMPO, NUMERO_LINHA,"
-        + " VALOR_CAMPO, VALOR_ESPERADO_CAMPO, CONTEUDO_LINHA FROM " + tabela + " ORDER BY NUMERO_LINHA LIMIT 500")) {
+    ResultSet r = per.executarComandoSql("SELECT TIPO, ID_MENSAGEM, NOME_REGISTRO, ID_CAMPO, NUMERO_LINHA,"
+        + " VALOR_CAMPO, VALOR_ESPERADO_CAMPO, CONTEUDO_LINHA FROM " + tabela + " ORDER BY NUMERO_LINHA LIMIT 500");
+    try {
       while (r.next()) {
         out.add(erro(r.getString(1), r.getString(2), r.getString(3), r.getString(4), r.getLong(5), r.getString(6), r.getString(7),
             r.getString(8)));
       }
+    } finally {
+      Verificacoes.fechar(r);
     }
     return out;
   }

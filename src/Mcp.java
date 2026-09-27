@@ -284,6 +284,15 @@ final class Mcp {
               "de_para", Json.obj("type", "object", "description", "cProd do XML → COD_ITEM do 0200 da empresa, ex.: {\"1\": \"MAT01\"}."),
               "dt_e_s", prop("string", "Data de entrada/saída ddmmaaaa (padrão: emissão, marcada como pendência na entrada).")),
           List.of("sessao", "chave")),
+      new Ferramenta("efd_propor_correcao", "Transforma os achados da sessão (verificações de malha e cruzamento EFD × XML) em"
+          + " operações do efd_editar, sem gravar: crédito de uso e consumo ou de CST sem direito zerado no C170 (ou no C190 sem"
+          + " itens); crédito do Simples ou acima do destacado reduzido ao valor do item no XML; documento cancelado/denegado"
+          + " refeito só com os campos de identificação e COD_SIT 02/04; chave do XML regerado trocada pela autorizada. Quando"
+          + " dois achados caem no mesmo item, vale o menor crédito. O resto volta como pendência explicada. Com pronto=true,"
+          + " passe operacoes, recalcular_analiticos e recalcular_apuracao ao efd_editar.",
+          props("sessao", prop("string", "Id devolvido por efd_abrir (com pasta_xml para os achados do cruzamento)."),
+              "codigo", prop("string", "Só este achado (ex.: CREDITO_USO_CONSUMO); padrão: todos.")),
+          List.of("sessao")),
       new Ferramenta("efd_gerar_arquivo", "Exporta pelo PVA a escrituração da sessão (com as edições) para um TXT em PVA_SAIDA, com"
           + " 0990/9900/9999 recontados, e revalida esse arquivo na mesma sessão: o resumo volta com os erros novos. O TXT sai sem"
           + " assinatura; a entrega à Receita é com o contribuinte.",
@@ -330,6 +339,7 @@ final class Mcp {
         case "efd_editar" -> editar(a);
         case "efd_gerar_arquivo" -> gerarArquivo(a);
         case "efd_propor_nfe" -> proporNfe(a);
+        case "efd_propor_correcao" -> proporCorrecao(a);
         case "efd_validar_pasta" -> validarPasta(a);
         case "tabela_sped" -> tabela(a);
         case "explicar_mensagem" -> explicar(a);
@@ -879,6 +889,16 @@ final class Mcp {
     if (resumo.get("verificacoes") instanceof List<?> l) l.forEach(o -> out.add((Map<String, Object>) o));
     if (resumo.get("cruzamento") instanceof Map<?, ?> c && c.get("achados") instanceof List<?> l) l.forEach(o -> out.add((Map<String, Object>) o));
     return out;
+  }
+
+  static Map<String, Object> proporCorrecao(Map<?, ?> a) throws Exception {
+    Sessao s = sessao(a);
+    List<Map<String, Object>> todos = new ArrayList<>(achados(s.out, "verificacoes"));
+    todos.addAll(achados(s.out, "achados"));
+    Path pasta = s.pastaXml == null ? null : resolver(s.pastaXml);
+    Map<String, Object> r = comBanco(s, per -> Correcao.montar(per, todos, txt(a, "codigo"), pasta, s.pendentes));
+    r.put("sessao", s.id);
+    return r;
   }
 
   @SuppressWarnings("unchecked")

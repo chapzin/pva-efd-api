@@ -6,6 +6,8 @@
   efd-exemplo-malha.txt  passa no PVA, mas credita ICMS de uso e consumo comprado
     de fornecedor do Simples: é o caso que /analisar e /cruzar apontam.
   xml-malha/  XMLs fictícios das notas desse período (uma delas não escriturada).
+  xml-correcao/  os mesmos XMLs com a venda cancelada (evento) e a compra com o XML regerado (Id diferente da
+    chave autorizada): os achados que o efd_propor_correcao corrige, junto com os de crédito.
   efd-exemplo-sat.txt + xml-sat/  vendas no SAT em resumo diário (C860/C890): cupom tributado
     resumido como ST, cupom fora da faixa do C860, dia sem resumo e um cupom cancelado.
   efd-exemplo-frete.txt + xml-frete/  fretes (D100 × CT-e): um tomado e escriturado, um creditado sem
@@ -66,6 +68,8 @@ def chave_cte(n):
 
 
 CTE_TOMADO, CTE_ALHEIO, CTE_ESQUECIDO, CTE_CANCELADO = (chave_cte(n) for n in (801, 802, 803, 804))
+# A mesma compra com o código numérico que a SEFAZ autorizou: o XML de xml-correcao foi regerado com o Id antigo.
+CHAVE_COMPRA_AUTORIZADA = dv_chave('23' + '2501' + CNPJ_FORNECEDOR + '55' + '001' + '000000456' + '1' + '99999999')
 CHAVE_ESQUECIDA = dv_chave('23' + '2501' + CNPJ_FORNECEDOR + '55' + '001' + '000000457' + '1' + '87654322')
 
 
@@ -157,7 +161,7 @@ def montar(icms_c190='180,00', compra=False, sat=False, frete=False):
     return ''.join('|' + '|'.join(r) + '|\r\n' for r in linhas)
 
 
-def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop='5102'):
+def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop='5102', autorizada=None):
     icms = (f'<ICMSSN101><orig>0</orig><CSOSN>101</CSOSN><pCredSN>1.00</pCredSN><vCredICMSSN>{v_cred_sn}</vCredICMSSN>'
             '</ICMSSN101>' if crt == '1' else
             f'<ICMS00><orig>0</orig><CST>00</CST><modBC>3</modBC><vBC>{v_nf}</vBC><pICMS>18.00</pICMS>'
@@ -170,7 +174,7 @@ def nfe(chave, emit, crt, dest, tp_nf, dia, v_nf, v_icms, v_cred_sn='0.00', cfop
             f'<det nItem="1"><prod><cProd>1</cProd><xProd>ITEM FICTICIO</xProd><CFOP>{cfop}</CFOP><uCom>UN</uCom><qCom>1.0000</qCom><vUnCom>{v_nf}</vUnCom><vProd>{v_nf}</vProd></prod>'
             f'<imposto><ICMS>{icms}</ICMS></imposto></det>'
             f'<total><ICMSTot><vBC>{v_icms and v_nf}</vBC><vICMS>{v_icms}</vICMS><vNF>{v_nf}</vNF></ICMSTot></total>'
-            '</infNFe>' + ASSINATURA + '</NFe><protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><chNFe>' + chave + '</chNFe>'
+            '</infNFe>' + ASSINATURA + '</NFe><protNFe versao="4.00"><infProt><tpAmb>2</tpAmb><chNFe>' + (autorizada or chave) + '</chNFe>'
             f'<dhRecbto>{dia}T10:00:05-03:00</dhRecbto><nProt>3232500000{chave[28:34]}</nProt><digVal>ZmljdGljaW8=</digVal>'
             '<cStat>100</cStat><xMotivo>Autorizado o uso da NF-e</xMotivo></infProt></protNFe></nfeProc>\n')
 
@@ -197,6 +201,19 @@ def cte(chave, toma, rem, dest, dia, v, v_icms, versao='4.00', nfe=None):
             f'<chCTe>{chave}</chCTe><dhRecbto>{dia}T10:00:05-03:00</dhRecbto><nProt>3232500001{chave[28:34]}</nProt>'
             '<digVal>ZmljdGljaW8=</digVal><cStat>100</cStat><xMotivo>Autorizado o uso do CT-e</xMotivo></infProt></protCTe>'
             '</cteProc>\n')
+
+
+def nfe_canc(chave, emit, dia):
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<procEventoNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="1.00"><evento versao="1.00">'
+            f'<infEvento Id="ID110111{chave}01"><cOrgao>23</cOrgao><tpAmb>2</tpAmb><CNPJ>{emit}</CNPJ><chNFe>{chave}</chNFe>'
+            f'<dhEvento>{dia}T11:00:00-03:00</dhEvento><tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento>'
+            '<detEvento versao="1.00"><descEvento>Cancelamento</descEvento>'
+            f'<nProt>3232500000{chave[28:34]}</nProt><xJust>VENDA NAO REALIZADA, EXEMPLO FICTICIO</xJust></detEvento>'
+            '</infEvento>' + ASSINATURA + '</evento><retEvento versao="1.00"><infEvento><tpAmb>2</tpAmb><cOrgao>23</cOrgao>'
+            f'<cStat>135</cStat><xMotivo>Evento registrado e vinculado a NF-e</xMotivo><chNFe>{chave}</chNFe>'
+            f'<tpEvento>110111</tpEvento><nSeqEvento>1</nSeqEvento><dhRegEvento>{dia}T11:00:05-03:00</dhRegEvento>'
+            f'<nProt>3232500003{chave[28:34]}</nProt></infEvento></retEvento></procEventoNFe>\n')
 
 
 def cte_canc(chave, dia):
@@ -247,6 +264,14 @@ if __name__ == '__main__':
         nfe(CHAVE_COMPRA, CNPJ_FORNECEDOR, '1', CNPJ, '1', '2025-01-10', '200.00', '0.00', v_cred_sn='2.00'))
     (xml / f'{CHAVE_ESQUECIDA}.xml').write_text(
         nfe(CHAVE_ESQUECIDA, CNPJ_FORNECEDOR, '1', CNPJ, '1', '2025-01-20', '350.00', '0.00', v_cred_sn='3.50'))
+    corr = aqui / 'xml-correcao'
+    corr.mkdir(exist_ok=True)
+    (corr / f'{CHAVE}.xml').write_text(nfe(CHAVE, CNPJ, '3', CNPJ_CLIENTE, '1', '2025-01-15', '1000.00', '180.00'))
+    (corr / f'{CHAVE}-canc.xml').write_text(nfe_canc(CHAVE, CNPJ, '2025-01-16'))
+    (corr / f'{CHAVE_COMPRA}.xml').write_text(nfe(CHAVE_COMPRA, CNPJ_FORNECEDOR, '1', CNPJ, '1', '2025-01-10', '200.00', '0.00',
+                                                  v_cred_sn='2.00', autorizada=CHAVE_COMPRA_AUTORIZADA))
+    (corr / f'{CHAVE_ESQUECIDA}.xml').write_text(
+        nfe(CHAVE_ESQUECIDA, CNPJ_FORNECEDOR, '1', CNPJ, '1', '2025-01-20', '350.00', '0.00', v_cred_sn='3.50'))
     (aqui / 'efd-exemplo-sat.txt').write_bytes(montar(sat=True).encode('iso-8859-1'))
     sat = aqui / 'xml-sat'
     sat.mkdir(exist_ok=True)
@@ -266,5 +291,5 @@ if __name__ == '__main__':
             (CTE_CANCELADO, '0', CNPJ, CNPJ_CLIENTE, '2025-01-22', '40.00', '4.80', '4.00', None)]:
         (frete / f'CTe{chave}.xml').write_text(cte(chave, toma, rem, dest, dia, v, v_icms, versao, nfe))
     (frete / f'CTeCanc{CTE_CANCELADO}.xml').write_text(cte_canc(CTE_CANCELADO, '2025-01-22'))
-    print('gerados: efd-exemplo-valido.txt, efd-exemplo-com-erro.txt, efd-exemplo-malha.txt, xml-malha/,'
+    print('gerados: efd-exemplo-valido.txt, efd-exemplo-com-erro.txt, efd-exemplo-malha.txt, xml-malha/, xml-correcao/,'
           ' efd-exemplo-sat.txt, xml-sat/, efd-exemplo-frete.txt, xml-frete/')

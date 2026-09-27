@@ -126,7 +126,7 @@ echo "$r" | grep -q '"serverInfo":{"name":"pva-efd-api"' || { echo "FALHOU (mcp 
 r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$URL/mcp")
 [ "$r" = 202 ] || { echo "FALHOU (mcp notificação): HTTP $r"; exit 1; }
 r=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
-for t in efd_abrir efd_detalhes efd_consultar efd_livro efd_editar efd_propor_nfe efd_gerar_arquivo efd_fechar efd_validar_pasta; do
+for t in efd_abrir efd_detalhes efd_consultar efd_livro efd_editar efd_propor_nfe efd_propor_correcao efd_gerar_arquivo efd_fechar efd_validar_pasta; do
   echo "$r" | grep -q "\"$t\"" || { echo "FALHOU (mcp tools/list, $t): $r"; exit 1; }
 done
 r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Origin: https://exemplo.com' --data '{}' "$URL/mcp")
@@ -211,6 +211,24 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
       echo "$r" | grep -q '| XML_NAO_ESCRITURADO | alerta | 1 | 0 | 350,00 |  | resolvido |' || { echo "FALHOU (mcp achados antes × depois): $r"; exit 1; }
       ferramenta efd_fechar "{\"sessao\":\"$x\"}" >/dev/null
       echo "ok: /mcp propõe a NF-e fora da EFD a partir do XML (de-para, uso e consumo sem crédito), escritura com pai @N e resolve o achado"
+
+      r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-malha.txt","pasta_xml":"xml-correcao"}')
+      y=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
+      r=$(ferramenta efd_propor_correcao "{\"sessao\":\"$y\"}")
+      for l in '| CANCELADA_ESCRITURADA | 1 | 1 |' '| alterar | C100 | 2 | CHV_NFE 23250177888999000181550010000004561999999990 |' \
+          '| excluir | 0150 | 1 |' '| alterar | C170 | 1 | VL_BC_ICMS 0,00 · ALIQ_ICMS 0,00 · VL_ICMS 0,00 |'; do
+        echo "$r" | grep -qF "$l" || { echo "FALHOU (mcp efd_propor_correcao, $l): $r"; exit 1; }
+      done
+      ops=$(echo "$r" | python3 -c 'import json,sys; print(json.dumps(json.loads(json.load(sys.stdin)["result"]["content"][0]["text"])["operacoes"]))')
+      r=$(ferramenta efd_editar "{\"sessao\":\"$y\",\"recalcular_analiticos\":true,\"recalcular_apuracao\":true,\"operacoes\":$ops}")
+      r=$(ferramenta efd_editar "{\"sessao\":\"$y\",\"operacoes\":[{\"acao\":\"alterar\",\"registro\":\"E116\",\"id\":1,\"campos\":{\"VL_OR\":\"0,00\"}}]}")
+      r=$(ferramenta efd_gerar_arquivo "{\"sessao\":\"$y\"}")
+      echo "$r" | grep -q '| Erros | 0 | 0 |' || { echo "FALHOU (mcp correções propostas gravadas): $r"; exit 1; }
+      for c in CREDITO_USO_CONSUMO CANCELADA_ESCRITURADA CHAVE_NAO_AUTORIZADA_ESCRITURADA; do
+        echo "$r" | grep "| $c |" | grep -q resolvido || { echo "FALHOU (mcp $c resolvido): $r"; exit 1; }
+      done
+      ferramenta efd_fechar "{\"sessao\":\"$y\"}" >/dev/null
+      echo "ok: /mcp propõe e grava a correção dos achados (crédito de uso e consumo, nota cancelada com 0150 órfão, chave regerada)"
     else
       echo "pulado: efd_propor_nfe → efd_editar (precisa de python3 para repassar as operações)"
     fi

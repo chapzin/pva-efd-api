@@ -38,6 +38,7 @@ pasta montada (`cliente/efd-2025-01.txt`). Qualquer caminho fora dela é recusad
 | `efd_livro` | Livros oficiais que o PVA gera da escrituração (menu Relatórios): `apuracao_icms`, `apuracao_st`, `difal`, `apuracao_ipi`, `inventario`, `ciap`, `entradas`, `saidas`, `producao_estoque`, `creditos_fiscais`. Sem `livro` lista os livros e períodos que a escrituração tem. `formato=texto` devolve as páginas em linhas (paginado); `formato=pdf` grava o PDF em `PVA_SAIDA`. `detalhar=true` lista entradas e saídas nota a nota. |
 | `efd_editar` | Altera campos, inclui ou exclui registros da escrituração da sessão pelo editor do PVA (IDs do `efd_consultar`). Opcionalmente refaz os analíticos (`recalcular_analiticos`) e a apuração do bloco E (`recalcular_apuracao`) com o gerador do PVA. |
 | `efd_propor_nfe` | Monta, do XML da `pasta_xml` da sessão, as operações do `efd_editar` que escrituram uma NF-e ausente da EFD (achado `XML_NAO_ESCRITURADO`). Não grava. |
+| `efd_propor_correcao` | Transforma os achados da sessão em operações do `efd_editar` (crédito sem direito ou acima do XML, nota cancelada/denegada, chave regerada), com pendências para o resto. Não grava. |
 | `efd_gerar_arquivo` | Exporta pelo PVA a escrituração editada para um TXT em `PVA_SAIDA` e o revalida na mesma sessão. |
 | `efd_fechar` | Fecha a sessão e apaga a escrituração do banco do PVA. |
 | `efd_validar_pasta` | Valida em lote as EFD de uma pasta, sem sessão: estado, total de erros e as 3 mensagens mais frequentes por arquivo. Até 50 por chamada; continue com `a_partir_de`. |
@@ -57,6 +58,7 @@ contas.
 | `efd_consultar` | As linhas do SELECT. |
 | `efd_editar` | Correções gravadas (campo, antes, depois), os C190 refeitos (VL_OPR, despesas rateadas, VL_RED_BC) e os totais do C100 alinhados. |
 | `efd_propor_nfe` | Proposta de escrituração (registro, pai, CFOP, CST, valor, BC, ICMS, regra aplicada) e pendências antes de gravar. |
+| `efd_propor_correcao` | Achados cobertos (ocorrências × com proposta), correções propostas com o valor de antes, o achado e a regra, e pendências. |
 | `efd_gerar_arquivo` | Arquivo original × arquivo gerado: estado, erros e totais do E110, cada mensagem do PVA e cada achado de malha/cruzamento como resolvido, novo, menor, maior ou igual. |
 | `efd_validar_pasta` | Um arquivo por linha: estado, válido, erros e principais mensagens. |
 
@@ -140,6 +142,28 @@ O fluxo de uma correção:
 - `DT_E_S` padrão é a emissão (pendência na entrada); passe `dt_e_s` com a data da entrada.
 
 Depois de gravar, o E116 continua com você, e o `efd_gerar_arquivo` mostra o achado como `resolvido`.
+
+### Correção dos achados
+
+`efd_propor_correcao` (opcional `codigo` para um achado só) usa os achados da última validação da sessão e o banco
+do PVA para localizar os registros pela linha do arquivo:
+
+| Achado | Operações propostas |
+|---|---|
+| `CREDITO_USO_CONSUMO`, `CREDITO_CST_SEM_DIREITO` | C170 do CFOP/CST do C190 com BC, alíquota e ICMS zerados (CST mantido) e `recalcular_analiticos`; sem C170, o C190. |
+| `CREDITO_SIMPLES_ACIMA_PERMITIDO`, `CREDITO_MAIOR_QUE_DESTACADO` | C170 com BC/alíquota/ICMS do item de mesmo `nItem` no XML (`vCredICMSSN`/`pCredSN`, ou `vBC`/`pICMS`/`vICMS`); MEI zera. |
+| `CANCELADA_ESCRITURADA`, `DENEGADA_ESCRITURADA` | Exclui o C100/D100 com os filhos; na emissão própria inclui de novo só com os campos de identificação e COD_SIT 02/04. O 0150 que só esse documento usava sai junto. |
+| `CHAVE_NAO_AUTORIZADA_ESCRITURADA` | `CHV_NFE`/`CHV_CTE` trocada pela chave do protocolo. |
+
+- Dois achados no mesmo item viram uma operação só, com o menor crédito (uso e consumo zera mesmo que o Simples
+  permitisse algum).
+- Os outros achados voltam em `pendencias` com o que fazer; os que pedem decisão (casamento item a item, documento
+  sem C170) bloqueiam o `pronto`.
+- Com edição não exportada, os achados estão velhos: gere o arquivo e proponha de novo.
+- Os achados guardam até 200 ocorrências cada; acima disso, corrija, gere e proponha de novo.
+
+Depois do `efd_editar`, ajuste o E116 ao `VL_ICMS_RECOLHER` refeito e rode o `efd_gerar_arquivo`: a tabela mostra
+cada achado como `resolvido`.
 
 O TXT exportado segue o formato do PVA: zeros decimais à direita somem (`1000` em vez de `1000,00`) e o `COD_PAIS`
 do 0150 perde o zero à esquerda (`1058`). O próprio PVA aceita o arquivo assim. Ele sai sem assinatura; a entrega à

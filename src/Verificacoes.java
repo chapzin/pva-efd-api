@@ -18,15 +18,32 @@ final class Verificacoes {
 
   static List<Map<String, String>> linhas(IPersistencia per, String sql, int limite) throws Exception {
     List<Map<String, String>> out = new ArrayList<>();
-    try (ResultSet r = per.executarComandoSql(sql)) {
+    ResultSet r = per.executarComandoSql(sql);
+    try {
       ResultSetMetaData md = r.getMetaData();
       while (r.next() && out.size() < limite) {
         Map<String, String> m = new LinkedHashMap<>();
         for (int i = 1; i <= md.getColumnCount(); i++) m.put(md.getColumnLabel(i), r.getString(i));
         out.add(m);
       }
+    } finally {
+      Verificacoes.fechar(r);
     }
     return out;
+  }
+
+  // executarComandoSql abre uma conexão por chamada e fechar só o ResultSet não a devolve: o MySQL do PVA chegava ao
+  // limite ("Too many connections") numa sequência de propostas.
+  static void fechar(ResultSet r) {
+    try {
+      java.sql.Statement st = r.getStatement();
+      java.sql.Connection c = st == null ? null : st.getConnection();
+      r.close();
+      if (st != null) st.close();
+      if (c != null) c.close();
+    } catch (java.sql.SQLException e) {
+      // conexão já fechada
+    }
   }
 
   static List<Map<String, String>> linhas(IPersistencia per, String sql) throws Exception {

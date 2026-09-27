@@ -135,6 +135,11 @@ mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do
 - `Proposta.java` monta a escrituração de uma NF-e a partir do XML (reaproveita o leitor do `Cruzamento`) e do banco
   da sessão (0000, 0001/C001, 0150, 0190, 0200 e C100 pela chave). Função pura: devolve operações e pendências,
   não grava.
+- `Correcao.java` converte as ocorrências dos achados (linha do arquivo → ID no banco) em operações e consolida por
+  registro. O `0150` órfão sai procurando `COD_PART` em todas as tabelas do `INFORMATION_SCHEMA`.
+- `IPersistencia.executarComandoSql` abre uma conexão por chamada, e fechar o `ResultSet` não a devolve. Fora da
+  transação de edição, `Verificacoes.fechar` fecha statement e conexão; sem isso o MySQL embutido chegava a "Too many
+  connections" numa sequência de propostas.
 - Depois da edição a escrituração vai para o estado de edição, como na tela
   (`UtilEscrituracao.alterarEstadoDoObjetoEscrituracaoParaEdicao` + `getDaoEscrituracaoFiscal().atualizar`).
 
