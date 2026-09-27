@@ -128,6 +128,8 @@ mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do
   `fiscalpva-dominio.jar`, que soma só BC, ICMS, ST e IPI: `VL_OPR` e `VL_RED_BC` saem vazios, e as somas de itens
   sem o campo também. `Edicao.completarVlOpr` completa: VL_OPR pelos C170 do grupo + frete/seguro/outras do C100
   rateados pelo VL_ITEM (sobra dos centavos no grupo de maior peso), VL_RED_BC nos CST x20/x70 e zero nos vazios.
+- O gerador também não mexe no C100, e o PVA exige C100 = soma dos C190 (`MSG_VL_ICMS_ANALIT`,
+  `MSG_VL_BC_ICMS_ANALIT`). `Edicao.alinharC100` iguala os totais só nos C100 pais dos C170/C190 editados.
 - Depois da edição a escrituração vai para o estado de edição, como na tela
   (`UtilEscrituracao.alterarEstadoDoObjetoEscrituracaoParaEdicao` + `getDaoEscrituracaoFiscal().atualizar`).
 

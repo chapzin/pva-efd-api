@@ -262,7 +262,8 @@ final class Mcp {
           + " formato do arquivo (1000,00; datas ddmmaaaa). A lista inteira é conferida antes de gravar (registro, ID, pai e campos):"
           + " se uma operação é inválida, nada é gravado. Opcionalmente refaz os registros analíticos (C190, C590, D190...) e a"
           + " apuração (E110, E210...) com o gerador do PVA; VL_OPR e VL_RED_BC do C190, que o gerador deixa vazios, são"
-          + " completados pelos C170 com frete/seguro/outras do C100 rateados. Depois use efd_gerar_arquivo para exportar e revalidar.",
+          + " completados pelos C170 com frete/seguro/outras do C100 rateados, e os totais (BC, ICMS, ST, IPI) do C100 dos itens"
+          + " editados passam a ser a soma dos C190. Depois use efd_gerar_arquivo para exportar e revalidar.",
           props("sessao", prop("string", "Id devolvido por efd_abrir."),
               "operacoes", Json.obj("type", "array", "description", "Lista de {acao: alterar|incluir|excluir, registro: \"C170\","
                   + " id: ID do registro (alterar/excluir), pai: ID do registro pai (incluir), campos: {CAMPO: valor}}.",
@@ -805,7 +806,15 @@ final class Mcp {
         c.linha(x.get("id"), x.get("c100"), x.get("cst"), x.get("cfop"), x.get("aliq"), x.get("vlOpr"), x.get("rateio"), x.get("vlRedBc"));
       }
     }
-    return Tabela.juntar("Correções gravadas", t, "C190 refeitos pelo gerador do PVA (completados pelo servidor)", c);
+    Tabela d = Tabela.com("C100 ID", "Campo", "Antes", "Depois");
+    if (r.get("c100AlinhadosAosC190") instanceof List<?> l) {
+      for (Object o : l) {
+        Map<String, Object> x = (Map<String, Object>) o;
+        d.linha(x.get("c100"), x.get("campo"), x.get("antes"), x.get("depois"));
+      }
+    }
+    return Tabela.juntar("Correções gravadas", t, "C190 refeitos pelo gerador do PVA (completados pelo servidor)", c,
+        "Totais do C100 alinhados à soma dos C190", d);
   }
 
   // Antes × depois da revalidação: por mensagem do PVA e pelos totais da apuração.

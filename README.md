@@ -183,7 +183,8 @@ make teste
 - `/mcp` responde ao protocolo; subindo com `PVA_DADOS=$PWD/exemplos`, o teste também abre a EFD da malha com os XMLs
   numa sessão, consulta o banco e fecha; com `PVA_SAIDA` gravável, edita a EFD válida (C100, C190, E116), recalcula a
   apuração, exporta pelo PVA e confere que o arquivo gerado sai `GERADA_PARA_ENTREGA`; na EFD da malha, refaz os C190
-  com frete rateado no `VL_OPR` e `VL_RED_BC` do CST 020.
+  com frete rateado no `VL_OPR` e `VL_RED_BC` do CST 020; e glosa o crédito de uso e consumo no item, com os totais do
+  C100 alinhados aos C190 refeitos, até o arquivo sair sem erros.
 
 ---
 

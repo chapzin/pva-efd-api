@@ -225,6 +225,47 @@ final class Edicao {
     return out;
   }
 
+  static final List<String> TOTAIS_C100 = List.of("VL_BC_ICMS", "VL_ICMS", "VL_BC_ICMS_ST", "VL_ICMS_ST", "VL_IPI");
+
+  // O gerador refaz o C190 mas não o C100, e o PVA exige C100 = soma dos C190 (MSG_VL_ICMS_ANALIT e afins). Só nos
+  // documentos cujos itens esta edição mexeu: divergência antiga em outro documento é achado, não se esconde.
+  static List<Map<String, Object>> alinharC100(EdicaoEscrituracao ed, java.util.Set<Long> docs) throws Exception {
+    List<Map<String, Object>> out = new ArrayList<>();
+    if (docs.isEmpty()) return out;
+    IRegistroDAO dao = ed.getPersistencia().getRegistroDAO();
+    MetadadosRegistro m = meta(ed.getDescritor(), "C100");
+    StringBuilder sql = new StringBuilder("SELECT ID_PAI");
+    for (String c : TOTAIS_C100) sql.append(", SUM(COALESCE(").append(c).append(",0)) AS ").append(c);
+    sql.append(" FROM reg_c190 WHERE ID_PAI IN (");
+    sql.append(String.join(",", docs.stream().map(String::valueOf).toList())).append(") GROUP BY ID_PAI");
+    Map<Long, Map<String, BigDecimal>> somas = new LinkedHashMap<>();
+    try (java.sql.ResultSet rs = ed.getPersistencia().executarComandoSql(sql.toString())) {
+      while (rs.next()) {
+        Map<String, BigDecimal> v = new LinkedHashMap<>();
+        for (String c : TOTAIS_C100) v.put(c, rs.getBigDecimal(c));
+        somas.put(rs.getLong("ID_PAI"), v);
+      }
+    }
+    for (Map.Entry<Long, Map<String, BigDecimal>> e : somas.entrySet()) {
+      Registro r = ler(dao, m, e.getKey());
+      boolean mudou = false;
+      for (String c : TOTAIS_C100) {
+        String antes = r.getCampo(c).getValor();
+        BigDecimal atual = antes == null || antes.isBlank() ? BigDecimal.ZERO : new BigDecimal(antes.replace(".", "").replace(',', '.'));
+        if (atual.compareTo(e.getValue().get(c)) == 0) continue;
+        String depois = valor(e.getValue().get(c));
+        r.getCampo(c).setValor(depois);
+        out.add(Json.obj("c100", e.getKey(), "campo", c, "antes", antes == null ? "" : antes, "depois", depois));
+        mudou = true;
+      }
+      if (mudou) {
+        r.setAlterado(true);
+        dao.atualizar(r);
+      }
+    }
+    return out;
+  }
+
   static String valor(BigDecimal v) {
     return v.setScale(2, RoundingMode.HALF_UP).toPlainString().replace('.', ',');
   }
@@ -246,13 +287,14 @@ final class Edicao {
             mudou.put(e.getKey(), Json.obj("antes", antes.get(e.getKey()), "depois", e.getValue()));
           }
         }
-        return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "alterados", mudou);
+        return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "pai", r.getIdPai(), "alterados", mudou);
       }
       case "excluir" -> {
         Registro r = ler(dao, m, id(op, "id"));
         Map<String, Object> antes = campos(r);
+        long paiExcluido = r.getIdPai();
         int n = remover(dao, d, r);
-        return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "linhasRemovidas", n, "era", antes);
+        return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "pai", paiExcluido, "linhasRemovidas", n, "era", antes);
       }
       case "incluir" -> {
         long pai = m.getMetadadosRegistroPai() == null ? 0 : id(op, "pai");
@@ -276,6 +318,7 @@ final class Edicao {
     List<Map<String, Object>> feitas = new ArrayList<>();
     String falhaGerador = null;
     Map<String, Object> vlOpr = null;
+    List<Map<String, Object>> c100 = null;
     try {
       IRegistroDAO dao = ed.getPersistencia().getRegistroDAO();
       DescritorEscrituracao d = ed.getDescritor();
@@ -304,6 +347,11 @@ final class Edicao {
           if (analiticos) {
             GeradorRegistroFachada.geraTodosRegistrosAnaliticos(ed.getFabricaObjetos());
             vlOpr = completarVlOpr(ed);
+            java.util.Set<Long> docs = new java.util.LinkedHashSet<>();
+            for (Map<String, Object> f : feitas) {
+              if (List.of("C170", "C190").contains(String.valueOf(f.get("registro"))) && f.get("pai") instanceof Long p) docs.add(p);
+            }
+            c100 = alinharC100(ed, docs);
           }
           if (apuracao) {
             GeradorRegistroFachada.geraTodosRegistrosApuracao(ed.getFabricaObjetos());
@@ -321,6 +369,7 @@ final class Edicao {
     PersistenciaFiscalPVA.getSingleton().getFabricaDaoMaster().getDaoEscrituracaoFiscal().atualizar(esc);
     Map<String, Object> r = Json.obj("operacoes", feitas, "analiticos", analiticos, "apuracao", apuracao);
     if (vlOpr != null) r.put("vlOprC190", vlOpr);
+    if (c100 != null && !c100.isEmpty()) r.put("c100AlinhadosAosC190", c100);
     if (falhaGerador != null) r.put("falhaRecalculo", falhaGerador);
     if (!falhas.isEmpty()) r.put("avisosDoEditor", falhas.stream().map(String::valueOf).toList());
     return r;

@@ -183,6 +183,17 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
     echo "$r" | grep -q '103.34/43.34,206.67/0.00' || { echo "FALHOU (mcp VL_OPR/VL_RED_BC do C190): $r"; exit 1; }
     ferramenta efd_fechar "{\"sessao\":\"$m\"}" >/dev/null
     echo "ok: /mcp refaz os C190 pelo gerador do PVA, rateia o frete no VL_OPR e calcula o VL_RED_BC do CST 020"
+
+    r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-malha.txt"}')
+    g=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
+    r=$(ferramenta efd_editar "{\"sessao\":\"$g\",\"recalcular_analiticos\":true,\"recalcular_apuracao\":true,\"operacoes\":[
+      {\"acao\":\"alterar\",\"registro\":\"C170\",\"id\":1,\"campos\":{\"CST_ICMS\":\"090\",\"VL_BC_ICMS\":\"0,00\",\"ALIQ_ICMS\":\"0,00\",\"VL_ICMS\":\"0,00\"}},
+      {\"acao\":\"alterar\",\"registro\":\"E116\",\"id\":1,\"campos\":{\"VL_OR\":\"180,00\"}}]}")
+    echo "$r" | grep -q '| 2 | VL_ICMS | 36,00 | 0,00 |' || { echo "FALHOU (mcp C100 alinhado aos C190): $r"; exit 1; }
+    r=$(ferramenta efd_gerar_arquivo "{\"sessao\":\"$g\"}")
+    echo "$r" | grep -q '| Erros | 0 | 0 |' || { echo "FALHOU (mcp glosa de uso e consumo): $r"; exit 1; }
+    ferramenta efd_fechar "{\"sessao\":\"$g\"}" >/dev/null
+    echo "ok: /mcp glosa o crédito de uso e consumo no item e alinha os totais do C100 aos C190 refeitos"
   fi
   ferramenta efd_fechar "{\"sessao\":\"$s\"}" >/dev/null
 else

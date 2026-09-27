@@ -54,7 +54,7 @@ contas.
 | `efd_abrir` | Resultado (estado, válido, erros, ICMS a recolher, saldo credor), erros do PVA por mensagem, verificações de malha e achados do cruzamento. |
 | `efd_detalhes` | Erros linha a linha (linha, registro, campo, valor, esperado), lista de achados ou as ocorrências de um achado. |
 | `efd_consultar` | As linhas do SELECT. |
-| `efd_editar` | Correções gravadas (campo, antes, depois) e os C190 refeitos (VL_OPR, despesas rateadas, VL_RED_BC). |
+| `efd_editar` | Correções gravadas (campo, antes, depois), os C190 refeitos (VL_OPR, despesas rateadas, VL_RED_BC) e os totais do C100 alinhados. |
 | `efd_gerar_arquivo` | Arquivo original × arquivo gerado: estado, erros e totais do E110, e cada mensagem do PVA como resolvida, nova, menor, maior ou igual. |
 | `efd_validar_pasta` | Um arquivo por linha: estado, válido, erros e principais mensagens. |
 
@@ -112,6 +112,9 @@ O fluxo de uma correção:
        calculados vêm em `c190ComVlRedBcCalculado` para conferir contra a NF-e.
      - Campos de valor que o gerador deixou vazios (itens sem ST ou IPI informados) viram `0,00`.
      - C190 de documento sem C170 fica como estava.
+     - Os totais do C100 (VL_BC_ICMS, VL_ICMS, VL_BC_ICMS_ST, VL_ICMS_ST, VL_IPI) viram a soma dos C190 refeitos,
+       só nos documentos cujos C170/C190 a edição mexeu (em `c100AlinhadosAosC190`, campo a campo). Divergência
+       antiga em outro documento não é tocada: é achado. O E116 (guia a recolher) continua com você.
    - Falha do gerador não desfaz a edição: vem em `falhaRecalculo`.
 3. `efd_gerar_arquivo` exporta pelo PVA (0990/9900/9999 recontados) para `PVA_SAIDA` e revalida o arquivo na mesma
    sessão: o resumo volta com os erros do arquivo novo. O nome padrão é o do original com `-pva.txt`; um arquivo com
