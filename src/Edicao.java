@@ -1,0 +1,288 @@
+import br.gov.serpro.geradorregistro.fachada.GeradorRegistroFachada;
+import br.gov.serpro.sped.fiscal.fronteira.edicao.ControleEditarEscrituracao;
+import br.gov.serpro.sped.fiscalpva.dominio.entidades.EscrituracaoFiscal;
+import br.gov.serpro.sped.fiscalpva.dominio.util.escrituracao.UtilEscrituracao;
+import br.gov.serpro.sped.fiscalpva.edicao.util.UtilEdicao;
+import br.gov.serpro.sped.fiscalpva.nucleo.controle.fabrica.FabricaControle;
+import br.gov.serpro.sped.fiscalpva.nucleo.controle.gerarArquivoEntrega.IControleGerarArquivo;
+import br.gov.serpro.sped.fiscalpva.persistencia.PersistenciaFiscalPVA;
+import br.gov.serpro.vepxml.edicao.fachada.EdicaoEscrituracao;
+import br.gov.serpro.vepxml.edicao.tratamentoexcecao.ITratadorExcecao;
+import br.gov.serpro.vepxml.nucleo.descritorescrituracao.DescritorEscrituracao;
+import br.gov.serpro.vepxml.nucleo.descritorescrituracao.metadados.MetadadosCampo;
+import br.gov.serpro.vepxml.nucleo.descritorescrituracao.metadados.MetadadosRegistro;
+import br.gov.serpro.vepxml.nucleo.entidade.Campo;
+import br.gov.serpro.vepxml.nucleo.entidade.Registro;
+import br.gov.serpro.vepxml.persistencia.dao.registro.IRegistroDAO;
+import br.gov.serpro.vepxml.persistencia.iterador.IIteradorRegistro;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+// Edição da escrituração pelo mesmo caminho da tela do PVA: DAO de registros (que recalcula o HASH de cada linha),
+// gerador de registros analíticos/apuração e exportação do TXT a partir do banco, com 0990/9900/9999 recontados.
+final class Edicao {
+  private Edicao() {}
+
+  static final List<Throwable> falhas = new ArrayList<>();
+  static final ITratadorExcecao TRATADOR = falhas::add;
+
+  static MetadadosRegistro meta(DescritorEscrituracao d, String reg) {
+    MetadadosRegistro m = reg == null ? null : d.getMetadadosRegistro(reg.toUpperCase());
+    if (m == null) throw new IllegalArgumentException("registro " + reg + " não existe no leiaute desta escrituração");
+    return m;
+  }
+
+  static long id(Map<?, ?> op, String k) {
+    Object v = op.get(k);
+    if (v == null) throw new IllegalArgumentException("operação sem " + k + ": " + op);
+    return v instanceof Number n ? n.longValue() : Long.parseLong(String.valueOf(v).trim());
+  }
+
+  static Map<String, Object> campos(Registro r) {
+    Map<String, Object> m = new LinkedHashMap<>();
+    for (Campo c : r.getCampos()) m.put(c.getID(), c.getValor());
+    return m;
+  }
+
+  static Registro ler(IRegistroDAO dao, MetadadosRegistro m, long id) throws Exception {
+    Registro r = dao.selecionarRegistro(m, id);
+    if (r == null) throw new IllegalArgumentException("registro " + m.getId() + " com ID " + id + " não existe");
+    return r;
+  }
+
+  static List<MetadadosRegistro> filhos(DescritorEscrituracao d, MetadadosRegistro pai) {
+    List<MetadadosRegistro> l = new ArrayList<>();
+    for (MetadadosRegistro m : d.getMetadadosRegistros().values()) if (m.getMetadadosRegistroPai() == pai) l.add(m);
+    return l;
+  }
+
+  static List<Registro> filhosDe(IRegistroDAO dao, DescritorEscrituracao d, Registro r) throws Exception {
+    List<Registro> rs = new ArrayList<>();
+    for (MetadadosRegistro f : filhos(d, r.getMetadadosRegistro())) {
+      IIteradorRegistro it = dao.selecionarRegistrosFilhos(f, r.getId(), new ArrayList<>());
+      try {
+        while (it.hasNext()) rs.add(it.proximo());
+      } finally {
+        it.fechar();
+      }
+    }
+    return rs;
+  }
+
+  // Apaga os descendentes antes, como a tela faz: um C100 leva junto C170, C190...
+  static int remover(IRegistroDAO dao, DescritorEscrituracao d, Registro r) throws Exception {
+    int n = 0;
+    for (Registro x : filhosDe(dao, d, r)) n += remover(dao, d, x);
+    dao.remover(r);
+    return n + 1;
+  }
+
+  static void marcarExcluidos(IRegistroDAO dao, DescritorEscrituracao d, Registro r, java.util.Set<String> excluidos) throws Exception {
+    excluidos.add(r.getMetadadosRegistro().getId() + "#" + r.getId());
+    for (Registro x : filhosDe(dao, d, r)) marcarExcluidos(dao, d, x, excluidos);
+  }
+
+  static void preencher(Registro r, Map<?, ?> valores) {
+    for (Map.Entry<?, ?> e : valores.entrySet()) {
+      String k = String.valueOf(e.getKey()).toUpperCase();
+      if (k.equals("REG")) throw new IllegalArgumentException("o campo REG não se altera");
+      Campo c = r.getCampo(k);
+      if (c == null) throw new IllegalArgumentException("campo " + k + " não existe no registro " + r.getMetadadosRegistro().getId());
+      c.setValor(e.getValue() == null ? "" : String.valueOf(e.getValue()));
+    }
+  }
+
+  static void conferirCampos(MetadadosRegistro m, Map<?, ?> valores) {
+    java.util.Set<String> ids = new java.util.HashSet<>();
+    for (MetadadosCampo mc : m.getCampos()) ids.add(mc.getId());
+    for (Object k : valores.keySet()) {
+      String c = String.valueOf(k).toUpperCase();
+      if (c.equals("REG")) throw new IllegalArgumentException("o campo REG não se altera");
+      if (!ids.contains(c)) throw new IllegalArgumentException("campo " + c + " não existe no registro " + m.getId());
+    }
+  }
+
+  // Confere a lista inteira antes de gravar: o DAO do PVA grava linha a linha e o rollback não desfaz o que já foi.
+  static void conferir(IRegistroDAO dao, DescritorEscrituracao d, List<?> ops) throws Exception {
+    java.util.Set<String> excluidos = new java.util.HashSet<>();
+    for (int i = 0; i < ops.size(); i++) {
+      try {
+        if (!(ops.get(i) instanceof Map<?, ?> op)) throw new IllegalArgumentException("não é um objeto");
+        String acao = String.valueOf(op.get("acao"));
+        if (!List.of("alterar", "incluir", "excluir").contains(acao)) {
+          throw new IllegalArgumentException("acao deve ser alterar, incluir ou excluir");
+        }
+        MetadadosRegistro m = meta(d, op.get("registro") == null ? null : String.valueOf(op.get("registro")));
+        Map<?, ?> valores = op.get("campos") instanceof Map<?, ?> x ? x : Map.of();
+        conferirCampos(m, valores);
+        MetadadosRegistro alvo = acao.equals("incluir") ? m.getMetadadosRegistroPai() : m;
+        if (alvo == null) continue;
+        long id = id(op, acao.equals("incluir") ? "pai" : "id");
+        Registro r = ler(dao, alvo, id);
+        if (excluidos.contains(alvo.getId() + "#" + id)) {
+          throw new IllegalArgumentException(alvo.getId() + " ID " + id + " já sai com uma exclusão anterior da lista");
+        }
+        if (acao.equals("excluir")) marcarExcluidos(dao, d, r, excluidos);
+      } catch (IllegalArgumentException e) {
+        throw new IllegalArgumentException("operação " + i + ": " + e.getMessage() + " (nada foi gravado)");
+      }
+    }
+  }
+
+  // O gerador de analíticos do PVA soma só BC, ICMS, ST e IPI por CST/CFOP/alíquota e deixa o VL_OPR do C190 vazio.
+  // Completa com a regra do Guia Prático sobre os itens: VL_ITEM - VL_DESC + VL_ICMS_ST + VL_IPI. Frete, seguro e
+  // outras despesas ficam no C100 sem rateio por item, então esses documentos vão para conferência.
+  static Map<String, Object> completarVlOpr(EdicaoEscrituracao ed) throws Exception {
+    IRegistroDAO dao = ed.getPersistencia().getRegistroDAO();
+    MetadadosRegistro m = meta(ed.getDescritor(), "C190");
+    String sql = "SELECT R.ID, SUM(COALESCE(I.VL_ITEM,0)-COALESCE(I.VL_DESC,0)+COALESCE(I.VL_ICMS_ST,0)"
+        + "+COALESCE(I.VL_IPI,0)) AS VL, MAX(COALESCE(C.VL_FRT,0)+COALESCE(C.VL_SEG,0)+COALESCE(C.VL_OUT_DA,0)) AS DESP,"
+        + " MAX(C.ID) AS C100, COUNT(I.ID) AS N FROM reg_c190 R JOIN reg_c100 C ON C.ID=R.ID_PAI LEFT JOIN reg_c170 I ON I.ID_PAI=C.ID"
+        + " AND I.CST_ICMS=R.CST_ICMS AND I.CFOP=R.CFOP AND I.ALIQ_ICMS<=>R.ALIQ_ICMS"
+        + " WHERE R.VL_OPR IS NULL GROUP BY R.ID";
+    Map<Long, java.math.BigDecimal> valores = new LinkedHashMap<>();
+    List<Long> semItens = new ArrayList<>();
+    java.util.Set<Long> comDespesa = new java.util.TreeSet<>();
+    try (java.sql.ResultSet rs = ed.getPersistencia().executarComandoSql(sql)) {
+      while (rs.next()) {
+        long id = rs.getLong("ID");
+        java.math.BigDecimal desp = rs.getBigDecimal("DESP");
+        if (rs.getLong("N") == 0) {
+          semItens.add(id);
+          continue;
+        }
+        valores.put(id, rs.getBigDecimal("VL"));
+        if (desp != null && desp.signum() != 0) comDespesa.add(rs.getLong("C100"));
+      }
+    }
+    for (Map.Entry<Long, java.math.BigDecimal> e : valores.entrySet()) {
+      Registro r = ler(dao, m, e.getKey());
+      r.getCampo("VL_OPR").setValor(e.getValue().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString().replace('.', ','));
+      r.setAlterado(true);
+      dao.atualizar(r);
+    }
+    Map<String, Object> out = Json.obj("c190Preenchidos", valores.size(),
+        "regra", "VL_OPR = soma dos C170 do grupo (VL_ITEM - VL_DESC + VL_ICMS_ST + VL_IPI)");
+    if (!comDespesa.isEmpty()) {
+      out.put("conferirC100ComFreteSeguroOutras", comDespesa);
+      out.put("nota", "esses C100 têm VL_FRT/VL_SEG/VL_OUT_DA, que entram no VL_OPR do C190 e não foram rateados:"
+          + " ajuste o VL_OPR com efd_editar");
+    }
+    if (!semItens.isEmpty()) out.put("c190SemItensComVlOprVazio", semItens);
+    return out;
+  }
+
+  static Map<String, Object> operar(IRegistroDAO dao, DescritorEscrituracao d, Map<?, ?> op) throws Exception {
+    String acao = String.valueOf(op.get("acao"));
+    MetadadosRegistro m = meta(d, op.get("registro") == null ? null : String.valueOf(op.get("registro")));
+    Map<?, ?> valores = op.get("campos") instanceof Map<?, ?> x ? x : Map.of();
+    switch (acao) {
+      case "alterar" -> {
+        Registro r = ler(dao, m, id(op, "id"));
+        Map<String, Object> antes = campos(r);
+        preencher(r, valores);
+        r.setAlterado(true);
+        dao.atualizar(r);
+        Map<String, Object> mudou = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> e : campos(r).entrySet()) {
+          if (!java.util.Objects.equals(e.getValue(), antes.get(e.getKey()))) {
+            mudou.put(e.getKey(), Json.obj("antes", antes.get(e.getKey()), "depois", e.getValue()));
+          }
+        }
+        return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "alterados", mudou);
+      }
+      case "excluir" -> {
+        Registro r = ler(dao, m, id(op, "id"));
+        Map<String, Object> antes = campos(r);
+        int n = remover(dao, d, r);
+        return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "linhasRemovidas", n, "era", antes);
+      }
+      case "incluir" -> {
+        long pai = m.getMetadadosRegistroPai() == null ? 0 : id(op, "pai");
+        if (m.getMetadadosRegistroPai() != null) ler(dao, m.getMetadadosRegistroPai(), pai);
+        Registro r = new Registro(0, m);
+        List<Campo> cs = new ArrayList<>();
+        for (MetadadosCampo mc : m.getCampos()) cs.add(new Campo(mc, mc.getId().equals("REG") ? m.getId() : ""));
+        r.setCampos(cs);
+        r.setIdPai(pai);
+        preencher(r, valores);
+        dao.inserir(r);
+        return Json.obj("acao", acao, "registro", m.getId(), "id", r.getId(), "pai", pai, "campos", campos(r));
+      }
+      default -> throw new IllegalArgumentException("acao deve ser alterar, incluir ou excluir");
+    }
+  }
+
+  static Map<String, Object> editar(EscrituracaoFiscal esc, List<?> ops, boolean analiticos, boolean apuracao) throws Exception {
+    falhas.clear();
+    EdicaoEscrituracao ed = UtilEdicao.abrirEdicao(esc, TRATADOR);
+    List<Map<String, Object>> feitas = new ArrayList<>();
+    String falhaGerador = null;
+    Map<String, Object> vlOpr = null;
+    try {
+      IRegistroDAO dao = ed.getPersistencia().getRegistroDAO();
+      DescritorEscrituracao d = ed.getDescritor();
+      conferir(dao, d, ops);
+      dao.abrirTransacao();
+      try {
+        for (int i = 0; i < ops.size(); i++) {
+          try {
+            feitas.add(operar(dao, d, (Map<?, ?>) ops.get(i)));
+          } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("operação " + i + ": " + e.getMessage()
+                + (feitas.isEmpty() ? " (nada foi gravado)" : " (as " + feitas.size() + " anteriores ficaram gravadas)"));
+          }
+        }
+        dao.commitTransacao();
+      } catch (Throwable e) {
+        if (dao.isTransacaoAberta()) dao.rollBackTransacao();
+        throw e;
+      }
+      // As operações já estão gravadas: falha do gerador vai na resposta, não desfaz a edição.
+      if (analiticos || apuracao) {
+        try {
+          // Os geradores leem da sessão do editor os dados do 0000 (UF, período). No PVA sem tela o Guice não
+          // registra o controlador de edição; o método não usa estado dele.
+          new ControleEditarEscrituracao().configurarSessaoEdicaoEscrituracao(ed);
+          if (analiticos) {
+            GeradorRegistroFachada.geraTodosRegistrosAnaliticos(ed.getFabricaObjetos());
+            vlOpr = completarVlOpr(ed);
+          }
+          if (apuracao) {
+            GeradorRegistroFachada.geraTodosRegistrosApuracao(ed.getFabricaObjetos());
+            GeradorRegistroFachada.geraRegistrosApuracao(ed.getFabricaObjetos());
+          }
+        } catch (Throwable e) {
+          falhaGerador = String.valueOf(e);
+        }
+      }
+    } finally {
+      ed.fechar();
+    }
+    // Como a tela ao entrar em edição: a escrituração deixa de estar "validada" até gerar e validar de novo.
+    UtilEscrituracao.alterarEstadoDoObjetoEscrituracaoParaEdicao(esc);
+    PersistenciaFiscalPVA.getSingleton().getFabricaDaoMaster().getDaoEscrituracaoFiscal().atualizar(esc);
+    Map<String, Object> r = Json.obj("operacoes", feitas, "analiticos", analiticos, "apuracao", apuracao);
+    if (vlOpr != null) r.put("vlOprC190", vlOpr);
+    if (falhaGerador != null) r.put("falhaRecalculo", falhaGerador);
+    if (!falhas.isEmpty()) r.put("avisosDoEditor", falhas.stream().map(String::valueOf).toList());
+    return r;
+  }
+
+  static void exportar(EscrituracaoFiscal esc, Path destino) throws java.io.IOException {
+    // Com o arquivo já existente o PVA abre um diálogo modal "substituir?" e a chamada nunca volta.
+    java.nio.file.Files.deleteIfExists(destino);
+    IControleGerarArquivo g;
+    try {
+      g = FabricaControle.getSingleton().getServico(IControleGerarArquivo.class);
+    } catch (RuntimeException semBinding) {
+      g = new br.gov.serpro.sped.fiscalpva.nucleo.controle.gerarArquivoEntrega.ControleGerarArquivoV1();
+    }
+    if (!g.exportarArquivo(esc, destino.toString(), PvaServer.progresso)) {
+      throw new IllegalStateException("o PVA não exportou a escrituração para " + destino);
+    }
+  }
+}

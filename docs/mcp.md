@@ -3,7 +3,7 @@
 O contêiner expõe um servidor [MCP](https://modelcontextprotocol.io) em `POST /mcp` (transporte *Streamable HTTP*,
 respostas em JSON). Com ele, o Claude Code (ou outro cliente MCP) usa o PVA oficial direto: abre uma EFD, lê os
 erros e os achados de malha por páginas, consulta o banco que o PVA montou com SQL e cruza com os XMLs, sem
-reimportar o arquivo a cada pergunta.
+reimportar o arquivo a cada pergunta. Também edita a escrituração pelo editor do PVA e exporta o TXT corrigido.
 
 ## Ligar
 
@@ -36,6 +36,8 @@ pasta montada (`cliente/efd-2025-01.txt`). Qualquer caminho fora dela é recusad
 | `efd_detalhes` | Pagina uma seção da sessão: `erros`, `verificacoes`, `achados`, `resumo`, `avisos`, `mensagens`, `estatistica`. `codigo` filtra os erros por mensagem ou abre as ocorrências de um achado. |
 | `efd_consultar` | `SELECT`, `SHOW TABLES` ou `DESCRIBE <tabela>` no banco da sessão (tabelas `reg_0000`, `reg_c100`, `reg_c190`, `reg_e110`...). Somente leitura, até 2000 linhas. |
 | `efd_livro` | Livros oficiais que o PVA gera da escrituração (menu Relatórios): `apuracao_icms`, `apuracao_st`, `difal`, `apuracao_ipi`, `inventario`, `ciap`, `entradas`, `saidas`, `producao_estoque`, `creditos_fiscais`. Sem `livro` lista os livros e períodos que a escrituração tem. `formato=texto` devolve as páginas em linhas (paginado); `formato=pdf` grava o PDF em `PVA_SAIDA`. `detalhar=true` lista entradas e saídas nota a nota. |
+| `efd_editar` | Altera campos, inclui ou exclui registros da escrituração da sessão pelo editor do PVA (IDs do `efd_consultar`). Opcionalmente refaz os analíticos (`recalcular_analiticos`) e a apuração do bloco E (`recalcular_apuracao`) com o gerador do PVA. |
+| `efd_gerar_arquivo` | Exporta pelo PVA a escrituração editada para um TXT em `PVA_SAIDA` e o revalida na mesma sessão. |
 | `efd_fechar` | Fecha a sessão e apaga a escrituração do banco do PVA. |
 | `efd_validar_pasta` | Valida em lote as EFD de uma pasta, sem sessão: estado, total de erros e as 3 mensagens mais frequentes por arquivo. Até 50 por chamada; continue com `a_partir_de`. |
 | `tabela_sped` | Tabelas externas da Receita: sem `nome` lista as tabelas; com `nome` filtra por `uf`, prefixo de `codigo` e `data` de vigência. |
@@ -61,6 +63,41 @@ PVA_DADOS=$HOME/auditorias PVA_SAIDA=$HOME/auditorias/livros docker compose up -
 ```
 
 Sem ela, só o formato texto funciona.
+
+## Editar e gerar o arquivo
+
+O fluxo de uma correção:
+
+1. `efd_abrir` e `efd_consultar` para achar os IDs (`SELECT ID, ID_PAI, ... FROM reg_c190`).
+2. `efd_editar` com a lista de operações:
+
+   ```json
+   {"sessao": "s1a2b3c", "recalcular_apuracao": true, "operacoes": [
+     {"acao": "alterar", "registro": "C190", "id": 1, "campos": {"ALIQ_ICMS": "12,00", "VL_ICMS": "120,00"}},
+     {"acao": "incluir", "registro": "C170", "pai": 2, "campos": {"NUM_ITEM": "2", "VL_ITEM": "100,00", "CFOP": "1556"}},
+     {"acao": "excluir", "registro": "C100", "id": 3}
+   ]}
+   ```
+
+   - Valores no formato do arquivo: `1000,00`, datas `ddmmaaaa`. O campo `REG` não se altera.
+   - A lista inteira é conferida antes de gravar (registro, ID, pai, campos, e nenhum ID que uma exclusão anterior da
+     lista já apaga). Se uma operação é inválida, nada é gravado. Um erro do próprio PVA no meio da gravação deixa as
+     operações anteriores gravadas; a resposta diz quantas.
+   - `excluir` leva os filhos: um C100 apaga os C170 e C190 dele.
+   - `recalcular_analiticos` refaz C190, C590, D190... a partir dos itens. O gerador do PVA não calcula o `VL_OPR`
+     do C190; o servidor completa com VL_ITEM − VL_DESC + VL_ICMS_ST + VL_IPI dos C170 do grupo e lista em
+     `vlOprC190.conferirC100ComFreteSeguroOutras` os documentos com frete, seguro ou outras despesas, que entram no
+     `VL_OPR` e não têm rateio por item. C190 de documento sem C170 fica como estava.
+   - Falha do gerador não desfaz a edição: vem em `falhaRecalculo`.
+3. `efd_gerar_arquivo` exporta pelo PVA (0990/9900/9999 recontados) para `PVA_SAIDA` e revalida o arquivo na mesma
+   sessão: o resumo volta com os erros do arquivo novo. O nome padrão é o do original com `-pva.txt`; um arquivo com
+   o mesmo nome é substituído.
+
+O TXT exportado segue o formato do PVA: zeros decimais à direita somem (`1000` em vez de `1000,00`) e o `COD_PAIS`
+do 0150 perde o zero à esquerda (`1058`). O próprio PVA aceita o arquivo assim. Ele sai sem assinatura; a entrega à
+Receita é com o contribuinte.
+
+Enquanto houver edição não exportada, o resumo da sessão traz `edicoesNaoExportadas`.
 
 ## Sessões
 
@@ -93,7 +130,7 @@ total está em `quantidade`.
 |---|---|---|
 | `PVA_DADOS` (compose) | `./dados` | Pasta do host montada só leitura em `/dados`. |
 | `PVA_DADOS_HOST` | vazio | Caminho do host equivalente a `/dados`, para aceitar caminhos do host. O compose preenche com `PVA_DADOS`. |
-| `PVA_SAIDA` (compose) | `./saida` | Pasta do host montada com escrita em `/saida`, para os PDFs de `efd_livro`. |
+| `PVA_SAIDA` (compose) | `./saida` | Pasta do host montada com escrita em `/saida`, para os PDFs de `efd_livro` e o TXT de `efd_gerar_arquivo`. |
 | `PVA_SAIDA_HOST` | vazio | Caminho do host equivalente a `/saida`, para a resposta trazer o caminho que o Claude enxerga. |
 | `PVA_MCP_SESSOES` | `4` | Sessões abertas ao mesmo tempo. |
 | `PVA_MCP_TTL_MIN` | `60` | Minutos de ociosidade até a sessão ser fechada. |

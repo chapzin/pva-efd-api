@@ -37,17 +37,21 @@ final class Mcp {
 
   static final class Sessao {
     final String id;
-    final String arquivo;
+    String arquivo;
     final String chave;
-    final EscrituracaoFiscal esc;
-    final Map<String, Object> out;
+    final String pastaXml;
+    EscrituracaoFiscal esc;
+    Map<String, Object> out;
+    // Operações de efd_editar ainda não exportadas: o resultado da validação em `out` é o de antes delas.
+    int pendentes;
     final long abertaEm = System.currentTimeMillis();
     long usadaEm = abertaEm;
 
-    Sessao(String id, String arquivo, String chave, EscrituracaoFiscal esc, Map<String, Object> out) {
+    Sessao(String id, String arquivo, String chave, String pastaXml, EscrituracaoFiscal esc, Map<String, Object> out) {
       this.id = id;
       this.arquivo = arquivo;
       this.chave = chave;
+      this.pastaXml = pastaXml;
       this.esc = esc;
       this.out = out;
     }
@@ -190,7 +194,8 @@ final class Mcp {
         "instructions", "PVA EFD ICMS/IPI oficial da Receita (" + PvaServer.versao + ") rodando sem tela. Fluxo: efd_abrir importa"
             + " a EFD uma vez e devolve um resumo com a sessão; efd_detalhes pagina erros, verificações de malha e achados do"
             + " cruzamento; efd_consultar roda SELECT/SHOW/DESCRIBE no banco que o PVA montou (tabelas reg_0000, reg_c100,"
-            + " reg_c190, reg_e110...); efd_fechar libera a sessão. Arquivos: caminhos dentro da pasta montada no contêiner"
+            + " reg_c190, reg_e110...); efd_editar altera, inclui ou exclui registros (IDs vêm do efd_consultar) e"
+            + " efd_gerar_arquivo exporta o TXT pelo PVA e revalida; efd_fechar libera a sessão. Arquivos: caminhos dentro da pasta montada no contêiner"
             + (HOST.isEmpty() ? " (relativos a ela)" : " (" + HOST + " no host, ou relativos a ela)")
             + "; arquivos_listar mostra o que está lá. O PVA valida uma escrituração por vez: chamadas esperam na fila."
             + " Achados de malha são indícios para conferência, não autuação.");
@@ -250,6 +255,24 @@ final class Mcp {
               "formato", prop("string", "texto (padrão) ou pdf"),
               "detalhar", prop("boolean", "Entradas/saídas: lista documento a documento além do resumo por CST/CFOP (padrão false)."))),
           List.of("sessao")),
+      new Ferramenta("efd_editar", "Edita a escrituração da sessão no banco do PVA, como a tela de edição: altera campos, inclui ou"
+          + " exclui registros (excluir leva os filhos junto: C100 apaga C170/C190). Os IDs e ID_PAI vêm do efd_consultar. Valores no"
+          + " formato do arquivo (1000,00; datas ddmmaaaa). A lista inteira é conferida antes de gravar (registro, ID, pai e campos):"
+          + " se uma operação é inválida, nada é gravado. Opcionalmente refaz os registros analíticos (C190, C590, D190...) e a"
+          + " apuração (E110, E210...) com o gerador do PVA; o VL_OPR do C190, que o gerador deixa vazio, é completado pelos"
+          + " C170. Depois use efd_gerar_arquivo para exportar e revalidar.",
+          props("sessao", prop("string", "Id devolvido por efd_abrir."),
+              "operacoes", Json.obj("type", "array", "description", "Lista de {acao: alterar|incluir|excluir, registro: \"C170\","
+                  + " id: ID do registro (alterar/excluir), pai: ID do registro pai (incluir), campos: {CAMPO: valor}}.",
+                  "items", Json.obj("type", "object")),
+              "recalcular_analiticos", prop("boolean", "Refaz todos os registros analíticos a partir dos itens (padrão false)."),
+              "recalcular_apuracao", prop("boolean", "Refaz os registros de apuração do bloco E (padrão false).")),
+          List.of("sessao", "operacoes")),
+      new Ferramenta("efd_gerar_arquivo", "Exporta pelo PVA a escrituração da sessão (com as edições) para um TXT em PVA_SAIDA, com"
+          + " 0990/9900/9999 recontados, e revalida esse arquivo na mesma sessão: o resumo volta com os erros novos. O TXT sai sem"
+          + " assinatura; a entrega à Receita é com o contribuinte.",
+          props("sessao", prop("string", "Id devolvido por efd_abrir."),
+              "nome", prop("string", "Nome do arquivo em PVA_SAIDA (padrão: nome do original com -pva.txt).")), List.of("sessao")),
       new Ferramenta("efd_fechar", "Fecha a sessão e apaga a escrituração do banco do PVA.",
           props("sessao", prop("string", "Id devolvido por efd_abrir.")), List.of("sessao")),
       new Ferramenta("efd_validar_pasta", "Valida em lote as EFD de uma pasta no PVA (sem abrir sessão): estado, total de erros e"
@@ -287,12 +310,15 @@ final class Mcp {
         case "efd_consultar" -> consultar(a);
         case "efd_fechar" -> fecharSessao(a);
         case "efd_livro" -> livro(a);
+        case "efd_editar" -> editar(a);
+        case "efd_gerar_arquivo" -> gerarArquivo(a);
         case "efd_validar_pasta" -> validarPasta(a);
         case "tabela_sped" -> tabela(a);
         case "explicar_mensagem" -> explicar(a);
         default -> throw new IllegalArgumentException("ferramenta desconhecida: " + nome);
       };
     } catch (Throwable e) {
+      if (!(e instanceof IllegalArgumentException)) e.printStackTrace();
       r = Json.obj("erro", e instanceof IllegalArgumentException ? e.getMessage() : String.valueOf(e));
       erro = true;
     }
@@ -409,27 +435,31 @@ final class Mcp {
   }
 
   @SuppressWarnings("unchecked")
+  static PvaServer.Etapa etapa(Cruzamento.Lote lote) {
+    return (per, out) -> {
+      PvaServer.ANALISE.executar(per, out);
+      if (lote != null) {
+        Map<String, Object> est = new LinkedHashMap<>();
+        List<Map<String, Object>> achados = Cruzamento.cruzar(per, lote, (Map<String, Object>) out.get("resumo"), est);
+        out.put("cruzamento", Json.obj("estatistica", est, "achados", achados));
+      }
+    };
+  }
+
   static Map<String, Object> abrir(Map<?, ?> a) throws Exception {
     Path orig = resolver(txt(a, "caminho"));
     Path tmp = copiaTemporaria(orig);
     String px = txt(a, "pasta_xml");
     Cruzamento.Lote lote = px == null ? null : lerXmls(resolver(px));
     try {
-      PvaServer.Etapa etapa = (per, out) -> {
-        PvaServer.ANALISE.executar(per, out);
-        if (lote != null) {
-          Map<String, Object> est = new LinkedHashMap<>();
-          List<Map<String, Object>> achados = Cruzamento.cruzar(per, lote, (Map<String, Object>) out.get("resumo"), est);
-          out.put("cruzamento", Json.obj("estatistica", est, "achados", achados));
-        }
-      };
+      PvaServer.Etapa etapa = etapa(lote);
       synchronized (PvaServer.class) {
         Map<String, Object> out = PvaServer.processar(tmp, etapa, true);
         String id;
         do {
           id = "s" + Integer.toHexString(RANDOM.nextInt(0x100000, 0x1000000));
         } while (SESSOES.containsKey(id));
-        Sessao s = new Sessao(id, exibir(orig), chave(tmp), PvaServer.mantida, out);
+        Sessao s = new Sessao(id, exibir(orig), chave(tmp), px, PvaServer.mantida, out);
         PvaServer.mantida = null;
         SESSOES.put(id, s);
         List<String> fechadas = new ArrayList<>();
@@ -560,6 +590,7 @@ final class Mcp {
       r.put("cruzamento", Json.obj("estatistica", est, "achados", semOcorrencias(achados(o, "achados"), false)));
     }
     if (o.get("mensagens") instanceof List<?> ms && !ms.isEmpty()) r.put("mensagensDoPva", ms.size());
+    if (s.pendentes > 0) r.put("edicoesNaoExportadas", s.pendentes);
     r.put("proximo", "efd_detalhes (erros, verificacoes, achados, resumo) e efd_consultar com sessao=" + s.id + "; efd_fechar no fim");
     return r;
   }
@@ -671,6 +702,62 @@ final class Mcp {
       r.putAll(pagina(Livros.texto(jp), pag));
       r.put("nota", "itens = páginas do livro, cada uma uma lista de linhas; colunas separadas por \" | \"");
       return r;
+    }
+  }
+
+  static Map<String, Object> editar(Map<?, ?> a) throws Exception {
+    Sessao s = sessao(a);
+    if (s.esc == null) throw new IllegalArgumentException("o PVA não integrou este arquivo: não há escrituração para editar");
+    if (!(a.get("operacoes") instanceof List<?> ops)) throw new IllegalArgumentException("operacoes deve ser uma lista");
+    synchronized (PvaServer.class) {
+      if (!SESSOES.containsKey(s.id)) throw new IllegalArgumentException("sessão " + s.id + " foi fechada");
+      Map<String, Object> r = Edicao.editar(s.esc, ops, Boolean.TRUE.equals(a.get("recalcular_analiticos")),
+          Boolean.TRUE.equals(a.get("recalcular_apuracao")));
+      s.pendentes += ops.size();
+      r.put("sessao", s.id);
+      r.put("edicoesNaoExportadas", s.pendentes);
+      r.put("proximo", "efd_consultar para conferir; efd_gerar_arquivo para exportar e revalidar");
+      return r;
+    }
+  }
+
+  static Map<String, Object> gerarArquivo(Map<?, ?> a) throws Exception {
+    Sessao s = sessao(a);
+    if (s.esc == null) throw new IllegalArgumentException("o PVA não integrou este arquivo: não há escrituração para exportar");
+    if (!Files.isDirectory(SAIDA) || !Files.isWritable(SAIDA)) {
+      throw new IllegalArgumentException("efd_gerar_arquivo precisa da pasta de saída montada com escrita (PVA_SAIDA)");
+    }
+    String nome = txt(a, "nome");
+    if (nome == null) nome = Path.of(s.arquivo).getFileName().toString().replaceAll("(?i)(-pva)?\\.txt$", "") + "-pva.txt";
+    if (!nome.matches("[\\w.-]+") || nome.startsWith(".")) throw new IllegalArgumentException("nome inválido: use letras, números, . _ -");
+    Path destino = SAIDA.resolve(nome);
+    Cruzamento.Lote lote = s.pastaXml == null ? null : lerXmls(resolver(s.pastaXml));
+    Path tmp = Files.createTempFile("mcp-", ".txt");
+    try {
+      synchronized (PvaServer.class) {
+        if (!SESSOES.containsKey(s.id)) throw new IllegalArgumentException("sessão " + s.id + " foi fechada");
+        Edicao.exportar(s.esc, destino);
+        Files.copy(destino, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        // A reimportação substitui a escrituração no banco (mesma chave): a sessão segue com o mesmo id.
+        SESSOES.remove(s.id);
+        int exportadas = s.pendentes;
+        try {
+          s.out = PvaServer.processar(tmp, etapa(lote), true);
+          s.esc = PvaServer.mantida;
+          PvaServer.mantida = null;
+          s.arquivo = SAIDA_HOST.isEmpty() ? destino.toString() : SAIDA_HOST + "/" + nome;
+          s.pendentes = 0;
+        } finally {
+          SESSOES.put(s.id, s);
+        }
+        Map<String, Object> r = compacto(s);
+        r.put("arquivoGerado", s.arquivo);
+        r.put("bytes", Files.size(destino));
+        r.put("edicoesExportadas", exportadas);
+        return r;
+      }
+    } finally {
+      Files.deleteIfExists(tmp);
     }
   }
 

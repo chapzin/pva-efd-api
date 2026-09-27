@@ -107,6 +107,35 @@ CNPJ/CPF + período: importar a mesma chave substitui a anterior, então `proces
 mesma chave do 0000 (`Mcp.liberarMesmaEscrituracao`). Toda operação no PVA, do HTTP ou do MCP, trava em
 `PvaServer.class`.
 
+## Edição sem tela
+
+`Edicao.java` edita a escrituração da sessão pelo caminho da tela de edição:
+
+- `UtilEdicao.abrirEdicao(esc, tratador)` devolve a `EdicaoEscrituracao` (persistência, descritor do leiaute e fábrica
+  de objetos). As operações passam pelo `IRegistroDAO` (`selecionarRegistro`, `atualizar`, `inserir`, `remover`), que
+  recalcula a coluna `HASH` de cada linha. Um `UPDATE` direto no banco deixaria o hash errado e o PVA acusaria
+  registro corrompido.
+- O DAO grava linha a linha e o `rollBackTransacao` não desfaz o que já foi. Por isso `Edicao.conferir` confere a
+  lista inteira antes de gravar: registro no leiaute, ID existente, pai existente, campos do registro, e nenhum ID
+  alvo de uma exclusão anterior da lista (os descendentes contam). `selecionarRegistrosFilhos` exige a lista de
+  filtros não nula.
+- Excluir apaga os descendentes antes (C100 leva C170, C190...), como a tela.
+- Os geradores (`GeradorRegistroFachada.geraTodosRegistrosAnaliticos`, `geraTodosRegistrosApuracao` e
+  `geraRegistrosApuracao`) leem da sessão do editor os dados do 0000; quem preenche é
+  `ControleEditarEscrituracao.configurarSessaoEdicaoEscrituracao`. No PVA sem tela o Guice não tem binding para
+  `IControleEditarEscrituracao`, então a classe é instanciada direto (o método não usa estado dela).
+- O gerador de analíticos usa a consulta `CALCULA_..._REGISTRO_ANALITICO_NO_REGISTRO_ITEM_C170` do
+  `fiscalpva-dominio.jar`, que soma só BC, ICMS, ST e IPI: o `VL_OPR` do C190 sai vazio. `Edicao.completarVlOpr`
+  completa com VL_ITEM − VL_DESC + VL_ICMS_ST + VL_IPI dos C170 do mesmo grupo e aponta os C100 com frete, seguro ou
+  outras despesas, que o C190 também soma e o C170 não rateia.
+- Depois da edição a escrituração vai para o estado de edição, como na tela
+  (`UtilEscrituracao.alterarEstadoDoObjetoEscrituracaoParaEdicao` + `getDaoEscrituracaoFiscal().atualizar`).
+
+`Edicao.exportar` usa o `IControleGerarArquivo` do fiscal (`ControleGerarArquivoV1`), que lê o banco e reconta
+0990/9900/9999. Se o arquivo de destino já existe, `ControleArquivos.verificaPermissaoGravacao` abre um diálogo
+modal ("substituir?") e a chamada não volta; o arquivo é apagado antes. O `efd_gerar_arquivo` do MCP reimporta o
+TXT gerado na mesma sessão (`processar`), então o resumo volta com a validação do arquivo novo.
+
 ## Livros sem tela
 
 `Livros.java` pega o controlador de relatórios pelo mesmo caminho do menu:

@@ -126,7 +126,7 @@ echo "$r" | grep -q '"serverInfo":{"name":"pva-efd-api"' || { echo "FALHOU (mcp 
 r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data '{"jsonrpc":"2.0","method":"notifications/initialized"}' "$URL/mcp")
 [ "$r" = 202 ] || { echo "FALHOU (mcp notificação): HTTP $r"; exit 1; }
 r=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
-for t in efd_abrir efd_detalhes efd_consultar efd_fechar efd_validar_pasta; do
+for t in efd_abrir efd_detalhes efd_consultar efd_livro efd_editar efd_gerar_arquivo efd_fechar efd_validar_pasta; do
   echo "$r" | grep -q "\"$t\"" || { echo "FALHOU (mcp tools/list, $t): $r"; exit 1; }
 done
 r=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Origin: https://exemplo.com' --data '{}' "$URL/mcp")
@@ -148,6 +148,26 @@ if ferramenta arquivos_listar '{"padrao":"efd-exemplo-malha.txt"}' | grep -q 'ef
     || { echo "FALHOU (mcp efd_livro): $r"; exit 1; }
   ferramenta efd_fechar "{\"sessao\":\"$s\"}" | grep -q 'fechada' || { echo "FALHOU (mcp efd_fechar)"; exit 1; }
   echo "ok: /mcp abre a EFD com os XMLs, consulta o banco, pagina o achado, gera o livro de apuração e fecha a sessão"
+
+  r=$(ferramenta efd_abrir '{"caminho":"efd-exemplo-valido.txt"}')
+  s=$(echo "$r" | grep -o 'sessao\\":\\"s[0-9a-f]*' | head -1 | grep -o 's[0-9a-f]*$')
+  r=$(ferramenta efd_editar "{\"sessao\":\"$s\",\"operacoes\":[{\"acao\":\"alterar\",\"registro\":\"C100\",\"id\":1,\"campos\":{\"NAOEXISTE\":\"1\"}}]}")
+  echo "$r" | grep -q 'nada foi gravado' || { echo "FALHOU (mcp efd_editar recusa campo): $r"; exit 1; }
+  r=$(ferramenta efd_editar "{\"sessao\":\"$s\",\"recalcular_apuracao\":true,\"operacoes\":[
+    {\"acao\":\"alterar\",\"registro\":\"C100\",\"id\":1,\"campos\":{\"VL_ICMS\":\"120,00\"}},
+    {\"acao\":\"alterar\",\"registro\":\"C190\",\"id\":1,\"campos\":{\"ALIQ_ICMS\":\"12,00\",\"VL_ICMS\":\"120,00\"}},
+    {\"acao\":\"alterar\",\"registro\":\"E116\",\"id\":1,\"campos\":{\"VL_OR\":\"120,00\"}}]}")
+  echo "$r" | grep -q 'edicoesNaoExportadas' || { echo "FALHOU (mcp efd_editar): $r"; exit 1; }
+  r=$(ferramenta efd_gerar_arquivo "{\"sessao\":\"$s\"}")
+  if echo "$r" | grep -q 'pasta de saída'; then
+    echo "pulado: efd_gerar_arquivo (suba com PVA_SAIDA montada com escrita)"
+  else
+    echo "$r" | grep -q 'GERADA_PARA_ENTREGA' || { echo "FALHOU (mcp efd_gerar_arquivo): $r"; exit 1; }
+    r=$(ferramenta efd_consultar "{\"sessao\":\"$s\",\"sql\":\"SELECT VL_ICMS_RECOLHER R FROM reg_e110\"}")
+    echo "$r" | grep -q 'R\\":\\"120.00' || { echo "FALHOU (mcp E110 após edição): $r"; exit 1; }
+    echo "ok: /mcp edita a escrituração, recalcula a apuração, gera o TXT pelo PVA e o revalida sem erros"
+  fi
+  ferramenta efd_fechar "{\"sessao\":\"$s\"}" >/dev/null
 else
   echo "pulado: fluxo de arquivos do /mcp (suba com PVA_DADOS=./exemplos para testar)"
 fi

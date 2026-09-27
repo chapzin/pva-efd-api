@@ -218,7 +218,7 @@ Servidor MCP (Streamable HTTP, JSON-RPC) para o Claude usar o PVA com sessões. 
 | `PVA_LIMITE_MB` | `512` | Tamanho máximo do arquivo aceito. |
 | `PVA_UF_DIFAL_NA_ENTRADA` | `CE` | UFs (separadas por vírgula) em que `DIFAL_SEM_AJUSTE` sai como `info`, porque o DIFAL é cobrado na entrada por guia própria. |
 | `PVA_DADOS_HOST` | vazio | Caminho do host da pasta montada em `/dados` (MCP). |
-| `PVA_SAIDA_HOST` | vazio | Caminho do host da pasta montada em `/saida`, onde `efd_livro` grava os PDFs. |
+| `PVA_SAIDA_HOST` | vazio | Caminho do host da pasta montada em `/saida`, onde `efd_livro` grava os PDFs e `efd_gerar_arquivo` o TXT. |
 | `PVA_MCP_SESSOES` | `4` | Sessões do MCP abertas ao mesmo tempo. |
 | `PVA_MCP_TTL_MIN` | `60` | Minutos de ociosidade até o MCP fechar a sessão. |
 | `JAVA_OPTS` | vazio | Opções extras para a JVM (ex.: `-Xmx1536m`). |
