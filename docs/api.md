@@ -217,6 +217,7 @@ Servidor MCP (Streamable HTTP, JSON-RPC) para o Claude usar o PVA com sessões. 
 | `PVA_ATUALIZAR_TABELAS_HORAS` | `24` | Atualiza as tabelas no boot e a cada N horas. `0` = só pelo endpoint. |
 | `PVA_LIMITE_MB` | `512` | Tamanho máximo do arquivo aceito. |
 | `PVA_UF_DIFAL_NA_ENTRADA` | `CE` | UFs (separadas por vírgula) em que `DIFAL_SEM_AJUSTE` sai como `info`, porque o DIFAL é cobrado na entrada por guia própria. |
+| `PVA_AJ_ESTORNO_INTERESTADUAL` | `CE030004,CE030011` | Códigos E111 de estorno de débito de saída interestadual com imposto já pago: ficam fora da `ESTORNO_DIFERE_DEBITO_ST` e são conferidos com as saídas 6xxx (`ESTORNO_MAIOR_DEBITO_INTERESTADUAL`). |
 | `PVA_DADOS_HOST` | vazio | Caminho do host da pasta montada em `/dados` (MCP). |
 | `PVA_SAIDA_HOST` | vazio | Caminho do host da pasta montada em `/saida`, onde `efd_livro` grava os PDFs e `efd_gerar_arquivo` o TXT. |
 | `PVA_MCP_SESSOES` | `4` | Sessões do MCP abertas ao mesmo tempo. |

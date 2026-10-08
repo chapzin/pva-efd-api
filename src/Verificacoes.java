@@ -276,7 +276,7 @@ final class Verificacoes {
   }
 
   // Estorno de débito da saída interestadual com o imposto já pago, destacado só para o crédito do
-  // adquirente (CE030011, desde 06/2025): é o débito das saídas 6xxx, não o das vendas com ST.
+  // adquirente (CE030004 até 05/2025, CE030011 desde 06/2025): é o débito das saídas 6xxx, não o das vendas com ST.
   private static void estornoInterestadual(List<Map<String, Object>> achados, IPersistencia per, BigDecimal estorno,
       List<String> codigos) throws Exception {
     List<Map<String, String>> tot = linhas(per, "SELECT SUM(a.VL_ICMS) V FROM reg_c190 a JOIN reg_c100 c ON a.ID_PAI = c.ID"
@@ -288,13 +288,13 @@ final class Verificacoes {
         "Estorno de débito interestadual maior que o ICMS destacado nas saídas interestaduais",
         "O E111 estorna débito de saída interestadual com o imposto já pago (" + String.join(", ", codigos) + "), mas o valor passa"
             + " do ICMS destacado nas saídas com CFOP 6xxx. O excedente reduz o ICMS de outras operações: é imposto a menos.",
-        "Guia Prático EFD ICMS/IPI, registro E111; Tabela 5.1.1 da UF (CE030011)",
+        "Guia Prático EFD ICMS/IPI, registro E111; Tabela 5.1.1 da UF (CE030004 até 05/2025, CE030011 desde 06/2025)",
         List.of(Json.obj("registro", "E111", "codigos", String.join(", ", codigos), "estorno", estorno, "debitoInterestadual", debito,
             "valor", dif))));
   }
 
   static final java.util.Set<String> AJ_ESTORNO_INTERESTADUAL = java.util.Set.of(
-      System.getenv().getOrDefault("PVA_AJ_ESTORNO_INTERESTADUAL", "CE030011").toUpperCase().split("[,; ]+"));
+      System.getenv().getOrDefault("PVA_AJ_ESTORNO_INTERESTADUAL", "CE030004,CE030011").toUpperCase().split("[,; ]+"));
 
   private static Map<String, Object> ocorrencia(Map<String, String> r, BigDecimal valor) {
     return Json.obj("registro", r.getOrDefault("REG", "C190"), "linha", inteiro(r.get("LINHA")), "linhaDocumento", inteiro(r.get("LINHA_DOC")),
