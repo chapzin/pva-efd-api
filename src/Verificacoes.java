@@ -238,12 +238,18 @@ final class Verificacoes {
   private static void debitoSaidaSt(List<Map<String, Object>> achados, IPersistencia per) throws Exception {
     List<Map<String, String>> est = linhas(per, "SELECT COD_AJ_APUR, SUM(VL_AJ_APUR) V FROM reg_e111"
         + " WHERE SUBSTRING(COD_AJ_APUR, 3, 2) = '03' GROUP BY COD_AJ_APUR");
-    BigDecimal estorno = BigDecimal.ZERO;
-    List<String> codigos = new ArrayList<>();
+    BigDecimal estorno = BigDecimal.ZERO, estornoInter = BigDecimal.ZERO;
+    List<String> codigos = new ArrayList<>(), codigosInter = new ArrayList<>();
     for (Map<String, String> r : est) {
+      if (AJ_ESTORNO_INTERESTADUAL.contains(r.get("COD_AJ_APUR"))) {
+        estornoInter = estornoInter.add(dec(r.get("V")));
+        codigosInter.add(r.get("COD_AJ_APUR"));
+        continue;
+      }
       estorno = estorno.add(dec(r.get("V")));
       codigos.add(r.get("COD_AJ_APUR"));
     }
+    if (estornoInter.signum() != 0) estornoInterestadual(achados, per, estornoInter, codigosInter);
     if (estorno.signum() == 0) {
       List<Map<String, Object>> oc = new ArrayList<>();
       for (Map<String, String> r : linhas(per, saidasSt("5405, 6404") + " ORDER BY LINHA", 5000)) oc.add(ocorrencia(r, dec(r.get("VL_ICMS"))));
@@ -268,6 +274,27 @@ final class Verificacoes {
         List.of(Json.obj("registro", "E111", "codigos", String.join(", ", codigos), "estorno", estorno, "debitoSaidasSt", debito,
             "valor", dif.abs()))));
   }
+
+  // Estorno de débito da saída interestadual com o imposto já pago, destacado só para o crédito do
+  // adquirente (CE030011, desde 06/2025): é o débito das saídas 6xxx, não o das vendas com ST.
+  private static void estornoInterestadual(List<Map<String, Object>> achados, IPersistencia per, BigDecimal estorno,
+      List<String> codigos) throws Exception {
+    List<Map<String, String>> tot = linhas(per, "SELECT SUM(a.VL_ICMS) V FROM reg_c190 a JOIN reg_c100 c ON a.ID_PAI = c.ID"
+        + " WHERE c.IND_OPER = 1 AND a.CFOP LIKE '6%' AND a.VL_ICMS > 0");
+    BigDecimal debito = tot.isEmpty() ? BigDecimal.ZERO : dec(tot.get(0).get("V"));
+    BigDecimal dif = estorno.subtract(debito);
+    if (dif.signum() <= 0 || dif.compareTo(TOLERANCIA) <= 0) return;
+    achados.add(achado("ESTORNO_MAIOR_DEBITO_INTERESTADUAL", "alerta",
+        "Estorno de débito interestadual maior que o ICMS destacado nas saídas interestaduais",
+        "O E111 estorna débito de saída interestadual com o imposto já pago (" + String.join(", ", codigos) + "), mas o valor passa"
+            + " do ICMS destacado nas saídas com CFOP 6xxx. O excedente reduz o ICMS de outras operações: é imposto a menos.",
+        "Guia Prático EFD ICMS/IPI, registro E111; Tabela 5.1.1 da UF (CE030011)",
+        List.of(Json.obj("registro", "E111", "codigos", String.join(", ", codigos), "estorno", estorno, "debitoInterestadual", debito,
+            "valor", dif))));
+  }
+
+  static final java.util.Set<String> AJ_ESTORNO_INTERESTADUAL = java.util.Set.of(
+      System.getenv().getOrDefault("PVA_AJ_ESTORNO_INTERESTADUAL", "CE030011").toUpperCase().split("[,; ]+"));
 
   private static Map<String, Object> ocorrencia(Map<String, String> r, BigDecimal valor) {
     return Json.obj("registro", r.getOrDefault("REG", "C190"), "linha", inteiro(r.get("LINHA")), "linhaDocumento", inteiro(r.get("LINHA_DOC")),
